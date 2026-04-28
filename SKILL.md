@@ -14,11 +14,11 @@ Use this skill when the user wants to create image assets through SorryCode.
 3. If the key is missing, stop and help the user set it up in beginner-friendly language. Do not invent a key and do not continue with a fake request.
 4. Use `gpt-image-2` by default.
 5. Use `1024x1024` by default. If the user asks for aspect ratio, high resolution, 2K / 4K, or `size`, load `references/size-guide.md` before choosing the parameter.
-6. For generation, call `/v1/images/generations` with a JSON body.
-7. For editing, require a local input image path, then call `/v1/images/edits` with `multipart/form-data`.
+6. For generation, call `/v1/images/generations` with a JSON body. Default to streaming with `stream: true` and `partial_images: 2`.
+7. For editing, require a local input image path, then call `/v1/images/edits` with `multipart/form-data`; prefer streaming fields when the endpoint supports them.
 8. Save outputs under `outputs/images/<short-slug>/` in the current project unless the user asks for another folder.
-9. Save the prompt as `prompt.txt` and the raw JSON response as `response.json`. For edits, also copy or record the source image path.
-10. If the response contains `url`, tell the user to open or download it. If it contains `b64_json`, decode it to `image.png`.
+9. Save the prompt as `prompt.txt`, the request body as `request.json`, and the raw response or SSE transcript as `response.json` / `events.ndjson`. For edits, also copy or record the source image path.
+10. If the final response or completed SSE event contains `url`, tell the user to open or download it. If it contains `b64_json`, decode it to `image.png`.
 
 ## API settings
 
@@ -43,9 +43,13 @@ Default generation request body:
   "model": "gpt-image-2",
   "prompt": "...",
   "size": "1024x1024",
-  "n": 1
+  "n": 1,
+  "stream": true,
+  "partial_images": 2
 }
 ```
+
+For streaming responses, read `text/event-stream` until a completed event or `[DONE]`. Save every SSE event line to `events.ndjson` or equivalent diagnostics. Decode the final completed image, not the first partial image, unless the user only asked for a preview.
 
 Default edit form fields:
 
@@ -53,6 +57,8 @@ Default edit form fields:
 model=gpt-image-2
 prompt=...
 size=1024x1024
+stream=true
+partial_images=2
 image=@/path/to/input.png
 ```
 
@@ -103,7 +109,17 @@ Do not hardcode secrets. Read `SORRYCODE_API_KEY` from the environment.
 - `401`: API key is missing, invalid, or not sent as `Authorization: Bearer ...`
 - `400`: request body is malformed; check `model`, `prompt`, `size`, and `n`
 - `503 No available compatible accounts`: the current group has no compatible account available; image models may not be enabled yet, or compatible accounts may be temporarily unavailable
-- slow request: image generation is slower than text; retry with a shorter prompt or wait
+- `524`: the request probably used a plain synchronous image path, or the client did not read SSE correctly. The correct request is `stream: true` plus `partial_images: 2`. Retry at most once with a conservative streaming request (`size: "auto"` or `1024x1024`, shorter prompt, `n: 1`, `stream: true`, `partial_images: 2`). If it still returns `524` before any SSE event, stop and save diagnostics.
+- slow request: image generation is slower than text. If SSE events keep arriving, keep waiting. Do not retry just because the final image takes a few minutes.
+- `stream=true`: always pair it with `partial_images: 2` for image generation. Save partial/completed SSE events; decode the final completed event as the output image.
+
+When `524` happens, save `headers.txt`, `curl-response.txt` or equivalent response metadata next to `prompt.txt` and `request.json`, then tell the user:
+
+```text
+The request reached SorryCode but timed out before any usable streaming image event arrived. I retried once with `stream: true` and `partial_images: 2`; please keep this diagnostic folder for maintainers.
+```
+
+Do not claim `api.sorrycode.com` exists unless DNS or project configuration proves it. The stable default entry is `https://www.sorrycode.com/v1` unless the project provides `SORRYCODE_BASE_URL`.
 
 ## Boundaries
 

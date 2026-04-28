@@ -4,7 +4,7 @@ Load this reference only when the user asks for a specific aspect ratio, high re
 
 ## Default behavior
 
-Use `1024x1024` by default. It is the safest first-run size and is appropriate for covers, avatars, article images, community images, and first drafts.
+Use `1024x1024` by default. Always keep `stream: true` and `partial_images: 2` in image requests. `1024x1024` is the safest first-run size and is appropriate for covers, avatars, article images, community images, and first drafts.
 
 Do not ask the user about size unless it matters to the task. If the user does not mention size or aspect ratio, keep the default.
 
@@ -28,7 +28,7 @@ Recommended mapping:
 
 ## Community reference sizes
 
-The following sizes are community reference parameters, not SorryCode stable guarantees. Use them only when the user explicitly asks for higher resolution or wants to experiment.
+The following sizes are higher-resolution parameters. Use them only when the user explicitly asks for higher resolution or wants to experiment, and keep streaming enabled.
 
 | Community reference use case | `size` |
 | --- | --- |
@@ -40,10 +40,10 @@ The following sizes are community reference parameters, not SorryCode stable gua
 Before using a community reference size, tell the user briefly:
 
 ```text
-I can try this higher-resolution community reference size, but it is not the default stable path. It may return 400, take longer, or fail depending on upstream and account capability.
+I can try this higher-resolution size. It may take longer, so I will keep stream:true and partial_images:2 enabled and save the streaming events.
 ```
 
-If the request fails with `400`, timeout, or upstream failure, retry once with the closest conservative size:
+If the request fails with `400`, `524`, timeout, or upstream failure, retry once with the closest conservative streaming request:
 
 - `2048x2048` -> `1024x1024`
 - `2048x1152` or `3840x2160` -> `1536x1024`
@@ -58,7 +58,9 @@ Square default:
   "model": "gpt-image-2",
   "prompt": "...",
   "size": "1024x1024",
-  "n": 1
+  "n": 1,
+  "stream": true,
+  "partial_images": 2
 }
 ```
 
@@ -69,7 +71,9 @@ Landscape:
   "model": "gpt-image-2",
   "prompt": "...",
   "size": "1536x1024",
-  "n": 1
+  "n": 1,
+  "stream": true,
+  "partial_images": 2
 }
 ```
 
@@ -80,6 +84,8 @@ Community 4K landscape experiment:
   "model": "gpt-image-2",
   "prompt": "...",
   "size": "3840x2160",
-  "n": 1
+  "n": 1,
+  "stream": true,
+  "partial_images": 2
 }
 ```
