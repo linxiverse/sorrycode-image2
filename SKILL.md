@@ -14,11 +14,36 @@ Use this skill when the user wants to create image assets through SorryCode.
 3. If the key is missing, stop and help the user set it up in beginner-friendly language. Do not invent a key and do not continue with a fake request.
 4. Use `gpt-image-2` by default.
 5. Use `1024x1024` by default. If the user asks for aspect ratio, high resolution, 2K / 4K, or `size`, load `references/size-guide.md` before choosing the parameter.
-6. For generation, call `/v1/images/generations` with a JSON body. Default to streaming with `stream: true` and `partial_images: 2`.
-7. For editing, require a local input image path, then call `/v1/images/edits` with `multipart/form-data`; prefer streaming fields when the endpoint supports them.
-8. Save outputs under `outputs/images/<short-slug>/` in the current project unless the user asks for another folder.
-9. Save the prompt as `prompt.txt`, the request body as `request.json`, and the raw response or SSE transcript as `response.json` / `events.ndjson`. For edits, also copy or record the source image path.
+6. Use the bundled Node script `scripts/sorrycode-image2.mjs` for actual requests. Do not hand-write inline JSON for `curl.exe` or PowerShell.
+7. For generation, run the script in generation mode. It sends `/v1/images/generations` with `stream: true` and `partial_images: 2`.
+8. For editing, require a local input image path, then run the script with `--mode edit --image <path>`.
+9. Save outputs under `outputs/images/<short-slug>/` unless the user asks for another folder. The script writes `prompt.txt`, `request.json`, `headers.txt`, `events.ndjson`, `response.json`, `summary.json`, and the final image when available.
 10. If the final response or completed SSE event contains `url`, tell the user to open or download it. If it contains `b64_json`, decode it to `image.png`.
+
+
+## Execution path
+
+Prefer this deterministic script path for every real request. Resolve `SKILL_DIR` to the directory that contains this `SKILL.md`; when editing this repository directly, `SKILL_DIR` is the repository root.
+
+```bash
+node "$SKILL_DIR/scripts/sorrycode-image2.mjs" \
+  --prompt "a cute cat sleeping in sunlight" \
+  --out outputs/images/cat
+```
+
+Edit mode:
+
+```bash
+node "$SKILL_DIR/scripts/sorrycode-image2.mjs" \
+  --mode edit \
+  --image ./input/product.png \
+  --prompt "make this product screenshot cleaner" \
+  --out outputs/images/product-hero
+```
+
+Do not ask the user to set `SKILL_DIR`; derive it from the loaded skill path before running the command.
+
+Do not use inline JSON with `curl.exe` in PowerShell. If a curl fallback is unavoidable, write UTF-8 `request.json`, validate it parses, and send it with `--data-binary "@request.json"`.
 
 ## API settings
 
@@ -98,11 +123,11 @@ Ask for only the missing fields that matter:
 
 Do not over-optimize the first prompt. The first run should produce one usable image quickly. For edits, describe the intended change instead of rewriting the whole source image from scratch.
 
-## Minimal Node.js script pattern
+## Script rules
 
-When writing a script, keep it dependency-free and use built-in `fetch` in modern Node.js. Read the prompt from command-line arguments. Create the output folder before writing files.
+Use the bundled script instead of generating a new ad-hoc request script. The bundled script is dependency-free, uses built-in `fetch`, reads `SORRYCODE_API_KEY` from the environment, writes UTF-8 diagnostics, and parses SSE events.
 
-Do not hardcode secrets. Read `SORRYCODE_API_KEY` from the environment.
+Do not hardcode secrets. Do not print the API key.
 
 ## Error handling
 

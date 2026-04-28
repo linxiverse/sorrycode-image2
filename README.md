@@ -25,6 +25,14 @@ npx skills add linxiverse/sorrycode-image2 -a claude-code -g -y
 - saves prompt, response events or metadata, and image outputs under `outputs/images/`
 - keeps advanced size guidance in `references/size-guide.md`
 
+## Script Usage
+
+```bash
+node scripts/sorrycode-image2.mjs --prompt "a cute cat sleeping in sunlight" --out outputs/images/cat
+```
+
+The script writes `request.json`, `events.ndjson`, `response.json`, `summary.json`, and the final image when available.
+
 ## First Prompt
 
 ```text
