@@ -1,6 +1,6 @@
 # SorryCode Image2
 
-Generate or edit image assets with `gpt-image-2` through the SorryCode Images API.
+Generate or edit image assets with `gpt-image-2` and enabled Gemini image models through the unified SorryCode Images API.
 
 ## Install
 
@@ -20,8 +20,10 @@ npx skills add linxiverse/sorrycode-image2 -a claude-code -g -y
 
 - checks `SORRYCODE_API_KEY` before making requests
 - uses `gpt-image-2` by default
-- generates new images through `/v1/images/generations` with `stream: true` and `partial_images: 2`
-- edits existing local images through `/v1/images/edits` with streaming fields
+- generates new images through `/v1/images/generations`
+- uses `stream: true` and `partial_images: 2` by default for `gpt-image-2`
+- uses non-streaming first-run requests for Gemini image models
+- edits existing local images through `/v1/images/edits`
 - saves prompt, response events or metadata, and image outputs under `outputs/images/`
 - keeps advanced size guidance in `references/size-guide.md`
 

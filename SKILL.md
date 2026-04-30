@@ -70,7 +70,7 @@ https://www.sorrycode.com/v1/images/edits
 
 If the user or project provides `SORRYCODE_BASE_URL`, use that value and append `/images/generations` or `/images/edits` after removing any trailing `/v1` or `/` ambiguity carefully.
 
-Default generation request body:
+Default `gpt-image-2` generation request body:
 
 ```json
 {
@@ -84,7 +84,7 @@ Default generation request body:
 }
 ```
 
-Gemini first-run request body:
+Gemini first-run request body (non-streaming):
 
 ```json
 {

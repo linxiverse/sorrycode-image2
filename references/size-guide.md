@@ -4,7 +4,7 @@ Load this reference only when the user asks for a specific aspect ratio, high re
 
 ## Default behavior
 
-Use `1024x1024` by default. Always keep `stream: true` and `partial_images: 2` in image requests. `1024x1024` is the safest first-run size and is appropriate for covers, avatars, article images, community images, and first drafts.
+Use `1024x1024` by default. For `gpt-image-2`, keep `stream: true` and `partial_images: 2` by default. For Gemini image models, use non-streaming first-run requests unless the user explicitly asks to experiment with streaming. `1024x1024` is the safest first-run size and is appropriate for covers, avatars, article images, community images, and first drafts.
 
 Do not ask the user about size unless it matters to the task. If the user does not mention size or aspect ratio, keep the default.
 
@@ -26,11 +26,11 @@ Recommended mapping:
 - mobile poster, vertical cover, character poster: `1024x1536`
 - user is unsure or explicitly says "auto": `auto`
 
-## Community reference sizes
+## Higher-resolution sizes
 
-The following sizes are higher-resolution parameters. Use them only when the user explicitly asks for higher resolution or wants to experiment, and keep streaming enabled.
+The following sizes are currently for `gpt-image-2`. Use them only when the user explicitly asks for higher resolution or wants to experiment, and keep streaming enabled. Gemini image models should stay on `1024x1024` unless a newer project note says higher resolutions were verified.
 
-| Community reference use case | `size` |
+| Use case | `size` |
 | --- | --- |
 | 2K square | `2048x2048` |
 | 2K landscape | `2048x1152` |
@@ -40,7 +40,7 @@ The following sizes are higher-resolution parameters. Use them only when the use
 Before using a community reference size, tell the user briefly:
 
 ```text
-I can try this higher-resolution size. It may take longer, so I will keep stream:true and partial_images:2 enabled and save the streaming events.
+I can try this higher-resolution size with gpt-image-2. It may take longer, so I will keep stream:true and partial_images:2 enabled and save the streaming events.
 ```
 
 If the request fails with `400`, `524`, timeout, or upstream failure, retry once with the closest conservative streaming request:
@@ -77,7 +77,7 @@ Landscape:
 }
 ```
 
-Community 4K landscape experiment:
+gpt-image-2 4K landscape experiment:
 
 ```json
 {
@@ -89,3 +89,8 @@ Community 4K landscape experiment:
   "partial_images": 2
 }
 ```
+
+
+## Invalid 4K size
+
+Do not use `4096x4096` as a 4K size. Current upstream constraints require the maximum side to be at most `3840px` and total pixels to be at most `8,294,400`. Use `3840x2160` or `2160x3840` for 4K experiments.
