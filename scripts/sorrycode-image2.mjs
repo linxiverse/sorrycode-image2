@@ -5,7 +5,7 @@ import { basename, join } from 'node:path';
 const DEFAULT_BASE_URL = 'https://www.sorrycode.com/v1';
 
 function parseArgs(argv) {
-  const args = { mode: 'generate', size: '1024x1024', model: 'gpt-image-2', n: 1, partialImages: 2 };
+  const args = { mode: 'generate', size: '1024x1024', model: 'gpt-image-2', n: 1, partialImages: 2, stream: true };
   for (let i = 0; i < argv.length; i += 1) {
     const arg = argv[i];
     const next = argv[i + 1];
@@ -22,6 +22,8 @@ function parseArgs(argv) {
     else if (key === 'base-url') { args.baseUrl = next; i += 1; }
     else if (key === 'n') { args.n = Number.parseInt(next, 10); i += 1; }
     else if (key === 'partial-images') { args.partialImages = Number.parseInt(next, 10); i += 1; }
+    else if (key === 'no-stream') args.stream = false;
+    else if (key === 'stream') args.stream = true;
   }
   return args;
 }
@@ -29,6 +31,7 @@ function parseArgs(argv) {
 function usage() {
   return `Usage:
   node scripts/sorrycode-image2.mjs --prompt "a cute cat" --out outputs/images/cat
+  node scripts/sorrycode-image2.mjs --model gemini-3-pro-image-preview --no-stream --prompt "a cute cat"
   node scripts/sorrycode-image2.mjs --mode edit --image ./input.png --prompt "make it watercolor" --out outputs/images/edit
 
 Environment:
@@ -165,7 +168,7 @@ async function main() {
   let body;
   const headers = {
     Authorization: `Bearer ${apiKey}`,
-    Accept: 'text/event-stream',
+    Accept: args.stream ? 'text/event-stream' : 'application/json',
   };
 
   const requestForLog = {
@@ -173,17 +176,23 @@ async function main() {
     prompt,
     size: args.size,
     n: args.n,
-    stream: true,
-    partial_images: args.partialImages,
+    response_format: 'b64_json',
   };
+  if (args.stream) {
+    requestForLog.stream = true;
+    requestForLog.partial_images = args.partialImages;
+  }
 
   if (mode === 'edit') {
     const form = new FormData();
     form.set('model', args.model);
     form.set('prompt', prompt);
     form.set('size', args.size);
-    form.set('stream', 'true');
-    form.set('partial_images', String(args.partialImages));
+    form.set('response_format', 'b64_json');
+    if (args.stream) {
+      form.set('stream', 'true');
+      form.set('partial_images', String(args.partialImages));
+    }
     const imageBytes = await readFile(args.image);
     form.set('image', new Blob([imageBytes]), basename(args.image));
     body = form;
