@@ -1,6 +1,6 @@
 # SorryCode Image2
 
-Generate or edit image assets with `gpt-image-2` and enabled Gemini image models through the unified SorryCode Images API.
+Generate or edit images with `gpt-image-2` and enabled Gemini image models through the unified SorryCode Images API.
 
 ## Install
 
@@ -24,19 +24,26 @@ npx skills add linxiverse/sorrycode-image2 -a claude-code -g -y
 - uses `stream: true` and `partial_images: 2` by default for `gpt-image-2`
 - uses non-streaming first-run requests for Gemini image models
 - edits existing local images through `/v1/images/edits`
-- saves prompt, response events or metadata, and image outputs under `outputs/images/`
+- saves API request/response diagnostics and image outputs under `outputs/images/`
+- can skip duplicate prompt logging with `--no-prompt-log` when another workflow already owns the runtime prompt file
 - keeps advanced size guidance in `references/size-guide.md`
+
+It does not teach agents how to write image prompts, choose visual styles, or
+design covers. Pass a prompt from the caller or from another workflow.
 
 ## Script Usage
 
 ```bash
-node scripts/sorrycode-image2.mjs --prompt "a cute cat sleeping in sunlight" --out outputs/images/cat
+node scripts/sorrycode-image2.mjs --prompt "<image prompt>" --out outputs/images/run
 ```
 
-The script writes `request.json`, `events.ndjson`, `response.json`, `summary.json`, and the final image when available.
+The script writes `request.json`, `headers.txt`, `events.ndjson`, `response.json`, `summary.json`, and the final image when available. Standalone runs also write `prompt.txt` by default.
 
-## First Prompt
+For workflow-owned prompts:
 
-```text
-请用 SorryCode Image2 帮我生成一张中文播客封面，主题是 AI 编程，新手友好，暖色调，干净排版。先检查 API Key，如果没设置就告诉我怎么设置；成功后把图片、prompt 和 response/events 保存到 outputs/images/first-cover/。
+```bash
+node scripts/sorrycode-image2.mjs \
+  --prompt-file path/to/runtime-prompt.md \
+  --no-prompt-log \
+  --out outputs/images/run
 ```

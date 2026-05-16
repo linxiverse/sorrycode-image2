@@ -5,7 +5,15 @@ import { basename, join } from 'node:path';
 const DEFAULT_BASE_URL = 'https://www.sorrycode.com/v1';
 
 function parseArgs(argv) {
-  const args = { mode: 'generate', size: '1024x1024', model: 'gpt-image-2', n: 1, partialImages: 2, stream: true };
+  const args = {
+    mode: 'generate',
+    size: '1024x1024',
+    model: 'gpt-image-2',
+    n: 1,
+    partialImages: 2,
+    stream: true,
+    promptLog: true,
+  };
   for (let i = 0; i < argv.length; i += 1) {
     const arg = argv[i];
     const next = argv[i + 1];
@@ -24,15 +32,18 @@ function parseArgs(argv) {
     else if (key === 'partial-images') { args.partialImages = Number.parseInt(next, 10); i += 1; }
     else if (key === 'no-stream') args.stream = false;
     else if (key === 'stream') args.stream = true;
+    else if (key === 'no-prompt-log') args.promptLog = false;
+    else if (key === 'prompt-log') args.promptLog = true;
   }
   return args;
 }
 
 function usage() {
   return `Usage:
-  node scripts/sorrycode-image2.mjs --prompt "a cute cat" --out outputs/images/cat
-  node scripts/sorrycode-image2.mjs --model gemini-3-pro-image-preview --no-stream --prompt "a cute cat"
-  node scripts/sorrycode-image2.mjs --mode edit --image ./input.png --prompt "make it watercolor" --out outputs/images/edit
+  node scripts/sorrycode-image2.mjs --prompt "<image prompt>" --out outputs/images/run
+  node scripts/sorrycode-image2.mjs --model gemini-3-pro-image-preview --no-stream --prompt "<image prompt>" --out outputs/images/run
+  node scripts/sorrycode-image2.mjs --prompt-file runtime-prompt.md --no-prompt-log --out outputs/images/run
+  node scripts/sorrycode-image2.mjs --mode edit --image ./input.png --prompt "<edit instruction>" --out outputs/images/edit
 
 Environment:
   SORRYCODE_API_KEY   required
@@ -160,7 +171,9 @@ async function main() {
 
   const outDir = args.out || join('outputs', 'images', 'sorrycode-image2');
   await mkdir(outDir, { recursive: true });
-  await writeFile(join(outDir, 'prompt.txt'), `${prompt}\n`, 'utf8');
+  if (args.promptLog) {
+    await writeFile(join(outDir, 'prompt.txt'), `${prompt}\n`, 'utf8');
+  }
 
   const baseUrl = normalizeBaseUrl(args.baseUrl || process.env.SORRYCODE_BASE_URL || DEFAULT_BASE_URL);
   const endpoint = endpointFor(baseUrl, mode);
@@ -236,6 +249,7 @@ async function main() {
     eventCount,
     firstEventMs,
     imageFile,
+    promptLog: args.promptLog ? 'prompt.txt' : null,
   }, null, 2), 'utf8');
 
   process.stdout.write(`Saved SorryCode image outputs to ${outDir}\n`);
