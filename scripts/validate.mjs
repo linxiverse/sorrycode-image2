@@ -4,14 +4,14 @@ import { readFile } from 'node:fs/promises';
 const supportedModels = ['gpt-image-2'];
 const unsupportedModels = ['gemini-3-pro-image', 'gemini-3.1-flash-image', 'gemini-3-pro-image-preview'];
 const pairs = [
-  ['SKILL.md', 'plugins/sorrycode-image2/skills/sorrycode-image2/SKILL.md'],
-  ['scripts/sorrycode-image2.mjs', 'plugins/sorrycode-image2/skills/sorrycode-image2/scripts/sorrycode-image2.mjs'],
-  ['references/size-guide.md', 'plugins/sorrycode-image2/skills/sorrycode-image2/references/size-guide.md'],
+  ['skills/sorrycode-image2/SKILL.md', 'plugins/sorrycode-image2/skills/sorrycode-image2/SKILL.md'],
+  ['skills/sorrycode-image2/scripts/sorrycode-image2.mjs', 'plugins/sorrycode-image2/skills/sorrycode-image2/scripts/sorrycode-image2.mjs'],
+  ['skills/sorrycode-image2/references/size-guide.md', 'plugins/sorrycode-image2/skills/sorrycode-image2/references/size-guide.md'],
 ];
 const publicFiles = [
   'README.md',
-  'SKILL.md',
-  'scripts/sorrycode-image2.mjs',
+  'skills/sorrycode-image2/SKILL.md',
+  'skills/sorrycode-image2/scripts/sorrycode-image2.mjs',
   '.claude-plugin/marketplace.json',
   'plugins/sorrycode-image2/.codex-plugin/plugin.json',
 ];
@@ -56,8 +56,8 @@ async function expectJSON(path) {
 await Promise.all([
   ...publicFiles.map(expectNoUnsupportedModels),
   expectModels('README.md'),
-  expectModels('SKILL.md'),
-  expectModels('scripts/sorrycode-image2.mjs'),
+  expectModels('skills/sorrycode-image2/SKILL.md'),
+  expectModels('skills/sorrycode-image2/scripts/sorrycode-image2.mjs'),
   ...pairs.map(([left, right]) => expectSame(left, right)),
 ]);
 

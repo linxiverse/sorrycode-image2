@@ -17,8 +17,7 @@
   ],
   "files": [
     "README.md",
-    "SKILL.md",
-    "references",
+    "skills",
     "scripts",
     ".agents",
     ".claude-plugin",

@@ -11,10 +11,10 @@
       "description": "Generates or edits images through the SorryCode Images API with gpt-image-2.",
       "version": "0.1.0",
       "category": "creative",
-      "source": "./",
+      "source": "./plugins/sorrycode-image2",
       "homepage": "https://github.com/linxiverse/sorrycode-image2",
       "skills": [
-        "./"
+        "./skills/sorrycode-image2"
       ],
       "strict": false
     }

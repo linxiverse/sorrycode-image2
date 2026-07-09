@@ -62,7 +62,7 @@ design covers. Pass a prompt from the caller or from another workflow.
 ## Script Usage
 
 ```bash
-node scripts/sorrycode-image2.mjs --prompt "<image prompt>" --out outputs/images/run
+node skills/sorrycode-image2/scripts/sorrycode-image2.mjs --prompt "<image prompt>" --out outputs/images/run
 ```
 
 The script writes `request.json`, `headers.txt`, `events.ndjson`, `response.json`, `summary.json`, and the final image when available. Standalone runs also write `prompt.txt` by default.
@@ -70,7 +70,7 @@ The script writes `request.json`, `headers.txt`, `events.ndjson`, `response.json
 For workflow-owned prompts:
 
 ```bash
-node scripts/sorrycode-image2.mjs \
+node skills/sorrycode-image2/scripts/sorrycode-image2.mjs \
   --prompt-file path/to/runtime-prompt.md \
   --no-prompt-log \
   --out outputs/images/run
