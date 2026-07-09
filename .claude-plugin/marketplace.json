@@ -1,0 +1,22 @@
+{
+  "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
+  "name": "sorrycode-image2",
+  "description": "SorryCode Images API runtime Skill for gpt-image-2.",
+  "owner": {
+    "name": "Linxiverse"
+  },
+  "plugins": [
+    {
+      "name": "sorrycode-image2",
+      "description": "Generates or edits images through the SorryCode Images API with gpt-image-2.",
+      "version": "0.1.0",
+      "category": "creative",
+      "source": "./",
+      "homepage": "https://github.com/linxiverse/sorrycode-image2",
+      "skills": [
+        "./"
+      ],
+      "strict": false
+    }
+  ]
+}

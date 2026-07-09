@@ -1,0 +1,20 @@
+{
+  "name": "sorrycode-image2",
+  "interface": {
+    "displayName": "SorryCode Image2"
+  },
+  "plugins": [
+    {
+      "name": "sorrycode-image2",
+      "source": {
+        "source": "local",
+        "path": "./plugins/sorrycode-image2"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Creative Tools"
+    }
+  ]
+}

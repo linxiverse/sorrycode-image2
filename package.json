@@ -1,0 +1,30 @@
+{
+  "name": "sorrycode-image2",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Agent Skill and plugin wrapper for the SorryCode Images API.",
+  "license": "UNLICENSED",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/linxiverse/sorrycode-image2.git"
+  },
+  "keywords": [
+    "agent-skills",
+    "codex",
+    "claude-code",
+    "images",
+    "sorrycode"
+  ],
+  "files": [
+    "README.md",
+    "SKILL.md",
+    "references",
+    "scripts",
+    ".agents",
+    ".claude-plugin",
+    "plugins"
+  ],
+  "scripts": {
+    "test": "node scripts/validate.mjs"
+  }
+}
