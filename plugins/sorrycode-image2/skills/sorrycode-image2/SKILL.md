@@ -1,6 +1,6 @@
 ---
 name: sorrycode-image2
-description: Call the SorryCode Images API to generate or edit images with gpt-image-2 from an already-specified image prompt or prompt file. Use when the task is specifically to execute image generation/editing through SorryCode. This skill owns API key checks, Images endpoint selection, request parameters, streaming mode, output files, and diagnostics; it does not teach visual prompt writing or maintain image styles.
+description: Call the SorryCode Images API to generate or edit images with gpt-image-2-all or gpt-image-2 from an already-specified image prompt or prompt file. Use when the task is specifically to execute image generation/editing through SorryCode. This skill owns API key checks, Images endpoint selection, request parameters, streaming mode, output files, and diagnostics; it does not teach visual prompt writing or maintain image styles.
 ---
 
 # SorryCode Image2
@@ -17,7 +17,7 @@ article cover methodology, prompt formulas, or reusable image patterns.
 1. Clarify whether the caller wants to generate a new image or edit an existing one.
 2. Check whether `SORRYCODE_API_KEY` exists before writing or running any request.
 3. If the key is missing, stop and help the user set it up. Do not invent a key and do not continue with a fake request.
-4. Use `gpt-image-2`. It is the only supported model.
+4. Let the script choose the model unless the caller explicitly passes `--model`. `auto` and standard sizes below 2K use `gpt-image-2-all`; 2K and 4K sizes use `gpt-image-2`.
 5. Use `1024x1024` by default. If the user asks for aspect ratio, high resolution, 2K / 4K, or `size`, load `references/size-guide.md` before choosing the parameter.
 6. Use the bundled Node script `scripts/sorrycode-image2.mjs` for actual requests. Do not hand-write inline JSON for shell one-offs.
 7. Use the default streaming mode with `stream: true` and `partial_images: 2`.
@@ -73,11 +73,11 @@ https://www.sorrycode.com/v1/images/edits
 
 If the user or project provides `SORRYCODE_BASE_URL`, use that value and append `/images/generations` or `/images/edits` after removing any trailing `/v1` or `/` ambiguity carefully.
 
-Default `gpt-image-2` generation request body:
+Default standard-size generation request body:
 
 ```json
 {
-  "model": "gpt-image-2",
+  "model": "gpt-image-2-all",
   "prompt": "...",
   "size": "1024x1024",
   "n": 1,
@@ -86,6 +86,8 @@ Default `gpt-image-2` generation request body:
   "response_format": "b64_json"
 }
 ```
+
+Automatic routing treats images with both edges below `2048` and no more than about `2.1` megapixels as standard size. This includes `1024x1024`, `1536x1024`, `1600x640`, and `1920x1080`. Passing `--model` always overrides this choice.
 
 ## API Key Gate
 

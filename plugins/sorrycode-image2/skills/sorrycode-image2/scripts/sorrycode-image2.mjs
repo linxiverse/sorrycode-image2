@@ -1,15 +1,35 @@
 #!/usr/bin/env node
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { basename, join } from 'node:path';
+import { pathToFileURL } from 'node:url';
 
 const DEFAULT_BASE_URL = 'https://www.sorrycode.com/v1';
-const SUPPORTED_MODELS = ['gpt-image-2'];
+const STANDARD_MODEL = 'gpt-image-2-all';
+const HIGH_RES_MODEL = 'gpt-image-2';
+const SUPPORTED_MODELS = [STANDARD_MODEL, HIGH_RES_MODEL];
+const STANDARD_MAX_PIXELS = 2_100_000;
+const HIGH_RES_EDGE = 2048;
 
-function parseArgs(argv) {
+export function selectDefaultModel(size) {
+  if (!size || size === 'auto') return STANDARD_MODEL;
+
+  const match = /^(\d+)x(\d+)$/.exec(size);
+  if (!match) return STANDARD_MODEL;
+
+  const width = Number(match[1]);
+  const height = Number(match[2]);
+  const isStandardSize =
+    Math.max(width, height) < HIGH_RES_EDGE &&
+    width * height <= STANDARD_MAX_PIXELS;
+
+  return isStandardSize ? STANDARD_MODEL : HIGH_RES_MODEL;
+}
+
+export function parseArgs(argv) {
   const args = {
     mode: 'generate',
     size: '1024x1024',
-    model: 'gpt-image-2',
+    model: undefined,
     n: 1,
     partialImages: 2,
     stream: true,
@@ -36,6 +56,7 @@ function parseArgs(argv) {
     else if (key === 'no-prompt-log') args.promptLog = false;
     else if (key === 'prompt-log') args.promptLog = true;
   }
+  args.model ??= selectDefaultModel(args.size);
   return args;
 }
 
@@ -47,6 +68,11 @@ function usage() {
 
 Supported models:
   ${SUPPORTED_MODELS.join('\n  ')}
+
+Automatic model selection:
+  gpt-image-2-all   auto and standard sizes below 2K (up to about 2.1 MP)
+  gpt-image-2       2K and 4K sizes
+  --model           overrides automatic selection
 
 Environment:
   SORRYCODE_API_KEY   required
@@ -267,6 +293,8 @@ async function main() {
   await writeFile(join(outDir, 'summary.json'), JSON.stringify({
     endpoint,
     mode,
+    model: args.model,
+    size: args.size,
     status: response.status,
     contentType,
     eventCount,
@@ -279,7 +307,12 @@ async function main() {
   if (imageFile) process.stdout.write(`Image: ${imageFile}\n`);
 }
 
-main().catch((error) => {
-  console.error(error instanceof Error ? error.message : String(error));
-  process.exitCode = 1;
-});
+const isDirectRun = process.argv[1]
+  && import.meta.url === pathToFileURL(process.argv[1]).href;
+
+if (isDirectRun) {
+  main().catch((error) => {
+    console.error(error instanceof Error ? error.message : String(error));
+    process.exitCode = 1;
+  });
+}

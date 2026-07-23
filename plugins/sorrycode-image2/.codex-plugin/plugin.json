@@ -1,6 +1,6 @@
 {
   "name": "sorrycode-image2",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Call the unified SorryCode Images API to generate or edit images.",
   "author": {
     "name": "Linxiverse",
@@ -19,7 +19,7 @@
   "interface": {
     "displayName": "SorryCode Image2",
     "shortDescription": "Generate and edit images through SorryCode",
-    "longDescription": "SorryCode Image2 wraps the SorryCode Images API for gpt-image-2. It checks SORRYCODE_API_KEY, writes request diagnostics, and saves generated images under outputs/images/.",
+    "longDescription": "SorryCode Image2 wraps the SorryCode Images API with automatic routing between gpt-image-2-all for standard sizes and gpt-image-2 for 2K/4K output. It checks SORRYCODE_API_KEY, writes request diagnostics, and saves generated images under outputs/images/.",
     "developerName": "Linxiverse",
     "category": "Creative Tools",
     "capabilities": [

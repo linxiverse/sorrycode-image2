@@ -1,6 +1,6 @@
 {
   "name": "sorrycode-image2",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "description": "Agent Skill and plugin wrapper for the SorryCode Images API.",
   "license": "UNLICENSED",

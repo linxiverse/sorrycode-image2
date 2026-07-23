@@ -1,10 +1,13 @@
 # SorryCode Image2
 
-Generate or edit images with `gpt-image-2` through the SorryCode Images API.
+Generate or edit images with `gpt-image-2-all` and `gpt-image-2` through the SorryCode Images API.
 
 Supported models:
 
-- `gpt-image-2`
+- `gpt-image-2-all`: automatic default for `auto`, common 1K/1080p sizes, and custom images below 2K up to about 2.1 megapixels
+- `gpt-image-2`: automatic default for 2K and 4K images
+
+Passing `--model` always overrides automatic selection.
 
 ## Install
 
@@ -48,7 +51,7 @@ codex plugin add sorrycode-image2@sorrycode-image2
 ## What It Does
 
 - checks `SORRYCODE_API_KEY` before making requests
-- uses `gpt-image-2` by default
+- selects `gpt-image-2-all` for standard-size work and `gpt-image-2` for 2K/4K work
 - generates new images through `/v1/images/generations`
 - uses `stream: true` and `partial_images: 2` by default
 - edits existing local images through `/v1/images/edits`

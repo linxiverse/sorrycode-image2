@@ -4,7 +4,7 @@ Load this reference only when the user asks for a specific aspect ratio, high re
 
 ## Default behavior
 
-Use `1024x1024` by default. Keep `stream: true` and `partial_images: 2` by default. `1024x1024` is the safest first-run size and is appropriate for covers, avatars, article images, community images, and first drafts.
+Use `1024x1024` by default. Keep `stream: true` and `partial_images: 2` by default. `1024x1024` is the safest first-run size, defaults to `gpt-image-2-all`, and is appropriate for covers, avatars, article images, community images, and first drafts.
 
 Do not ask the user about size unless it matters to the task. If the user does not mention size or aspect ratio, keep the default.
 
@@ -18,6 +18,8 @@ Use these first for stable beginner flows:
 | Landscape | `1536x1024` |
 | Portrait | `1024x1536` |
 | Let the model choose | `auto` |
+
+These sizes default to `gpt-image-2-all`. Custom images with both edges below `2048` and no more than about `2.1` megapixels, including `1600x640` and `1920x1080`, use the same route.
 
 Recommended mapping:
 
@@ -37,6 +39,8 @@ Use the following sizes only when the user explicitly asks for higher resolution
 | 4K landscape | `3840x2160` |
 | 4K portrait | `2160x3840` |
 
+These sizes default to `gpt-image-2`.
+
 Before using a community reference size, tell the user briefly:
 
 ```text
@@ -55,7 +59,7 @@ Square default:
 
 ```json
 {
-  "model": "gpt-image-2",
+  "model": "gpt-image-2-all",
   "prompt": "...",
   "size": "1024x1024",
   "n": 1,
@@ -68,7 +72,7 @@ Landscape:
 
 ```json
 {
-  "model": "gpt-image-2",
+  "model": "gpt-image-2-all",
   "prompt": "...",
   "size": "1536x1024",
   "n": 1,
