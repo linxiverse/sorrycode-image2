@@ -1,7 +1,7 @@
 {
   "name": "sorrycode-image2",
   "version": "0.2.0",
-  "description": "Call the unified SorryCode Images API to generate or edit images.",
+  "description": "Generate and edit images by reusing the active Codex SorryCode key.",
   "author": {
     "name": "Linxiverse",
     "url": "https://github.com/linxiverse"
@@ -18,8 +18,8 @@
   "skills": "./skills/",
   "interface": {
     "displayName": "SorryCode Image2",
-    "shortDescription": "Generate and edit images through SorryCode",
-    "longDescription": "SorryCode Image2 wraps the SorryCode Images API with automatic routing between gpt-image-2-all for standard sizes and gpt-image-2 for 2K/4K output. It checks SORRYCODE_API_KEY, writes request diagnostics, and saves generated images under outputs/images/.",
+    "shortDescription": "Generate images with your current SorryCode key",
+    "longDescription": "SorryCode Image2 reuses the active Codex SorryCode provider key for Images API generation and editing. It asks for an Image2-group SORRYCODE_API_KEY only when the current key is unavailable or lacks image capability, and never stores credentials in diagnostics.",
     "developerName": "Linxiverse",
     "category": "Creative Tools",
     "capabilities": [
@@ -28,7 +28,7 @@
     ],
     "websiteURL": "https://github.com/linxiverse/sorrycode-image2",
     "defaultPrompt": [
-      "Use SorryCode Image2 to generate an image",
+      "Use SorryCode Image2 to generate an image with my current Codex provider",
       "Use SorryCode Image2 to edit this local image"
     ],
     "brandColor": "#2563EB"

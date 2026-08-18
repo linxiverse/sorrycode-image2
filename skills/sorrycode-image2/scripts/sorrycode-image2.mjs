@@ -1,14 +1,117 @@
 #!/usr/bin/env node
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { homedir } from 'node:os';
 import { basename, join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
-const DEFAULT_BASE_URL = 'https://www.sorrycode.com/v1';
+const DEFAULT_BASE_URL = 'https://sorrycode.com/v1';
 const STANDARD_MODEL = 'gpt-image-2-all';
 const HIGH_RES_MODEL = 'gpt-image-2';
 const SUPPORTED_MODELS = [STANDARD_MODEL, HIGH_RES_MODEL];
 const STANDARD_MAX_PIXELS = 2_100_000;
 const HIGH_RES_EDGE = 2048;
+const FALLBACK_KEY_GUIDANCE = 'Create or select a SorryCode API key from the Image2 group, then set it as SORRYCODE_API_KEY. This fallback key does not replace your current Codex GPT key.';
+
+function isSorryCodeUrl(value) {
+  if (typeof value !== 'string' || !value.trim()) return false;
+  try {
+    const hostname = new URL(value).hostname.toLowerCase();
+    return hostname === 'sorrycode.com' || hostname.endsWith('.sorrycode.com');
+  } catch {
+    return false;
+  }
+}
+
+export function parseCodexSorryCodeConfig(content) {
+  if (!/^model_provider\s*=\s*["']sorrycode["']\s*(?:#.*)?$/m.test(content)) return null;
+  const sectionStart = content.search(/^\[model_providers\.sorrycode\]\s*$/m);
+  if (sectionStart === -1) return null;
+  const afterHeader = content.slice(sectionStart).replace(/^\[model_providers\.sorrycode\]\s*\r?\n?/, '');
+  const nextSection = afterHeader.search(/^\[/m);
+  const section = nextSection === -1 ? afterHeader : afterHeader.slice(0, nextSection);
+  const stringValue = (key) => {
+    const match = new RegExp(`^${key}\\s*=\\s*(["'])(.*?)\\1\\s*(?:#.*)?$`, 'm').exec(section);
+    return match?.[2] || null;
+  };
+  const baseUrl = stringValue('base_url');
+  if (!isSorryCodeUrl(baseUrl)) return null;
+  return {
+    providerId: 'sorrycode',
+    baseUrl,
+    envKey: stringValue('env_key'),
+    requiresOpenAIAuth: /^requires_openai_auth\s*=\s*true\s*(?:#.*)?$/m.test(section),
+  };
+}
+
+export async function resolveCredentialCandidates({ env = process.env, home = homedir(), read = readFile } = {}) {
+  const codexHome = env.CODEX_HOME?.trim() || join(home, '.codex');
+  let provider = null;
+  try {
+    provider = parseCodexSorryCodeConfig(await read(join(codexHome, 'config.toml'), 'utf8'));
+  } catch {}
+
+  let currentKey = '';
+  if (provider?.envKey) {
+    currentKey = env[provider.envKey]?.trim() || '';
+  } else if (provider?.requiresOpenAIAuth) {
+    try {
+      const auth = JSON.parse(await read(join(codexHome, 'auth.json'), 'utf8'));
+      currentKey = typeof auth.OPENAI_API_KEY === 'string' ? auth.OPENAI_API_KEY.trim() : '';
+    } catch {}
+  }
+
+  const fallbackKey = env.SORRYCODE_API_KEY?.trim() || '';
+  const candidates = [];
+  if (currentKey) candidates.push({ key: currentKey, source: 'codex' });
+  if (fallbackKey && fallbackKey !== currentKey) candidates.push({ key: fallbackKey, source: 'fallback' });
+
+  return { candidates, providerBaseUrl: provider?.baseUrl || null };
+}
+
+export function shouldTryFallbackKey(status, responseText) {
+  if (status === 401 || status === 403) return true;
+  const message = responseText.toLowerCase();
+  if (status === 400) {
+    return message.includes('image model') ||
+      message.includes('image generation disabled') ||
+      message.includes('permission');
+  }
+  return status === 503 && message.includes('no available compatible accounts');
+}
+
+export function redactCredentialText(value, candidates) {
+  let redacted = String(value);
+  for (const candidate of candidates) {
+    if (candidate.key) redacted = redacted.replaceAll(candidate.key, '[REDACTED]');
+  }
+  return redacted;
+}
+
+export async function executeCredentialAttempts({ endpoint, candidates, buildRequest, fetchImpl = fetch, onFallback }) {
+  for (let i = 0; i < candidates.length; i += 1) {
+    const candidate = candidates[i];
+    const { headers, body } = buildRequest(candidate.key);
+    let response;
+    try {
+      response = await fetchImpl(endpoint, { method: 'POST', headers, body });
+    } catch (error) {
+      throw new Error(`SorryCode image request did not complete (${error instanceof Error ? error.message : String(error)}). The fallback key was not tried because the first request may still be processing.`);
+    }
+    if (response.ok) return { response, credentialSource: candidate.source, responseText: null };
+
+    const responseText = await response.text();
+    const fallback = candidates[i + 1];
+    const canTryFallback = candidate.source === 'codex' &&
+      fallback?.source === 'fallback' &&
+      shouldTryFallbackKey(response.status, responseText);
+    if (canTryFallback) {
+      await onFallback?.({ response, responseText });
+      continue;
+    }
+    return { response, credentialSource: candidate.source, responseText };
+  }
+  return { response: null, credentialSource: null, responseText: null };
+}
 
 export function selectDefaultModel(size) {
   if (!size || size === 'auto') return STANDARD_MODEL;
@@ -75,8 +178,9 @@ Automatic model selection:
   --model           overrides automatic selection
 
 Environment:
-  SORRYCODE_API_KEY   required
-  SORRYCODE_BASE_URL  optional, defaults to ${DEFAULT_BASE_URL}
+  CODEX_HOME           optional, defaults to ~/.codex
+  SORRYCODE_API_KEY    optional Image2-group fallback key
+  SORRYCODE_BASE_URL   optional endpoint override, defaults to the active SorryCode provider
 `;
 }
 
@@ -205,8 +309,11 @@ async function main() {
     throw new Error(`Unsupported model "${args.model}". Supported models: ${SUPPORTED_MODELS.join(', ')}.`);
   }
 
-  const apiKey = process.env.SORRYCODE_API_KEY;
-  if (!apiKey) throw new Error('SORRYCODE_API_KEY is not set.');
+  const credentials = await resolveCredentialCandidates();
+  if (credentials.candidates.length === 0) {
+    throw new Error(`No reusable SorryCode key was found in the active Codex provider. ${FALLBACK_KEY_GUIDANCE}`);
+  }
+  const credentialKeys = credentials.candidates;
 
   const prompt = await resolvePrompt(args);
   if (!prompt) throw new Error('Prompt is required. Use --prompt or --prompt-file.');
@@ -219,14 +326,10 @@ async function main() {
     await writeFile(join(outDir, 'prompt.txt'), `${prompt}\n`, 'utf8');
   }
 
-  const baseUrl = normalizeBaseUrl(args.baseUrl || process.env.SORRYCODE_BASE_URL || DEFAULT_BASE_URL);
+  const baseUrl = normalizeBaseUrl(
+    args.baseUrl || process.env.SORRYCODE_BASE_URL || credentials.providerBaseUrl || DEFAULT_BASE_URL,
+  );
   const endpoint = endpointFor(baseUrl, mode);
-
-  let body;
-  const headers = {
-    Authorization: `Bearer ${apiKey}`,
-    Accept: args.stream ? 'text/event-stream' : 'application/json',
-  };
 
   let requestForLog = {
     model: args.model,
@@ -240,7 +343,23 @@ async function main() {
     requestForLog.partial_images = args.partialImages;
   }
 
+  const imageBytes = mode === 'edit' ? await readFile(args.image) : null;
   if (mode === 'edit') {
+    requestForLog.image = args.image;
+  }
+
+  await writeFile(join(outDir, 'request.json'), JSON.stringify(requestForLog, null, 2), 'utf8');
+
+  const buildRequest = (apiKey) => {
+    const headers = {
+      Authorization: `Bearer ${apiKey}`,
+      Accept: args.stream ? 'text/event-stream' : 'application/json',
+    };
+    if (mode !== 'edit') {
+      headers['Content-Type'] = 'application/json';
+      return { headers, body: JSON.stringify(requestForLog) };
+    }
+
     const form = new FormData();
     form.set('model', args.model);
     form.set('prompt', prompt);
@@ -250,31 +369,43 @@ async function main() {
       form.set('stream', 'true');
       form.set('partial_images', String(args.partialImages));
     }
-    const imageBytes = await readFile(args.image);
     form.set('image', new Blob([imageBytes]), basename(args.image));
-    body = form;
-    requestForLog.image = args.image;
-  } else {
-    headers['Content-Type'] = 'application/json';
-    body = JSON.stringify(requestForLog);
-  }
+    return { headers, body: form };
+  };
 
-  await writeFile(join(outDir, 'request.json'), JSON.stringify(requestForLog, null, 2), 'utf8');
-
-  const response = await fetch(endpoint, { method: 'POST', headers, body });
-  await writeFile(join(outDir, 'headers.txt'), `HTTP ${response.status}\n${headersToText(response.headers)}`, 'utf8');
-
-  const contentType = response.headers.get('content-type') || '';
+  const attempt = await executeCredentialAttempts({
+    endpoint,
+    candidates: credentials.candidates,
+    buildRequest,
+    onFallback: async ({ response: rejected, responseText }) => {
+      const safeHeaders = redactCredentialText(headersToText(rejected.headers), credentialKeys);
+      const safeResponse = redactCredentialText(responseText, credentialKeys);
+      await writeFile(join(outDir, 'codex-key-headers.txt'), `HTTP ${rejected.status}\n${safeHeaders}`, 'utf8');
+      await writeFile(join(outDir, 'codex-key-response.txt'), safeResponse, 'utf8');
+    },
+  });
+  const { response, credentialSource, responseText } = attempt;
+  if (!response) throw new Error('SorryCode image request did not return a response.');
   if (!response.ok) {
-    const text = await response.text();
-    await writeFile(join(outDir, 'curl-response.txt'), text, 'utf8');
+    const safeHeaders = redactCredentialText(headersToText(response.headers), credentialKeys);
+    const safeResponse = redactCredentialText(responseText, credentialKeys);
+    await writeFile(join(outDir, 'headers.txt'), `HTTP ${response.status}\n${safeHeaders}`, 'utf8');
+    await writeFile(join(outDir, 'curl-response.txt'), safeResponse, 'utf8');
     let detail = '';
     try {
-      const payload = JSON.parse(text);
+      const payload = JSON.parse(responseText);
       if (payload?.error?.message) detail = `: ${payload.error.message}`;
     } catch {}
+    detail = redactCredentialText(detail, credentialKeys);
+    if (credentialSource === 'codex' && shouldTryFallbackKey(response.status, responseText)) {
+      throw new Error(`The current Codex SorryCode key cannot generate images (HTTP ${response.status}${detail}). ${FALLBACK_KEY_GUIDANCE}`);
+    }
     throw new Error(`SorryCode image request failed: HTTP ${response.status}${detail}. Diagnostics saved to ${outDir}`);
   }
+  const safeHeaders = redactCredentialText(headersToText(response.headers), credentialKeys);
+  await writeFile(join(outDir, 'headers.txt'), `HTTP ${response.status}\n${safeHeaders}`, 'utf8');
+
+  const contentType = response.headers.get('content-type') || '';
 
   let finalPayload = null;
   let eventCount = 0;
@@ -300,11 +431,15 @@ async function main() {
     eventCount,
     firstEventMs,
     imageFile,
+    credentialSource: credentialSource === 'codex' ? 'codex-sorrycode-provider' : 'image2-fallback',
     promptLog: args.promptLog ? 'prompt.txt' : null,
   }, null, 2), 'utf8');
 
+  if (!imageFile) {
+    throw new Error(`SorryCode returned success without a saved image. Diagnostics saved to ${outDir}`);
+  }
   process.stdout.write(`Saved SorryCode image outputs to ${outDir}\n`);
-  if (imageFile) process.stdout.write(`Image: ${imageFile}\n`);
+  process.stdout.write(`Image: ${imageFile}\n`);
 }
 
 const isDirectRun = process.argv[1]
