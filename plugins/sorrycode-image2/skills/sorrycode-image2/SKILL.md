@@ -1,35 +1,32 @@
 ---
 name: sorrycode-image2
-description: Generate or edit images through the SorryCode Images API with gpt-image-2-all or gpt-image-2 from an already-specified prompt. Reuse the active Codex SorryCode provider key by default, and use SORRYCODE_API_KEY only when that key is unavailable or definitely cannot generate images. Use for image generation or editing through SorryCode; this skill owns credential discovery, endpoint selection, request parameters, output files, and diagnostics, but not visual prompt writing.
+description: Generate or edit images through the SorryCode Images API with gpt-image-2-all or gpt-image-2 from an existing prompt. Automatically discover the active SorryCode Codex provider key; use when a caller needs reproducible image generation, local image editing, fixed output paths, or saved diagnostics.
 ---
 
 # SorryCode Image2
 
-Use this skill to execute an existing image prompt or edit instruction through
-the SorryCode Images API. Reuse the user's active Codex SorryCode configuration
-before introducing a separate image credential.
-
-This is a runtime driver. It does not own visual direction, style systems,
-article cover methodology, prompt formulas, or reusable image patterns.
+Execute an existing image prompt or edit instruction through the SorryCode
+Images API. This Skill owns credential discovery, request execution, and output
+files. It does not own visual direction, prompt design, or reusable style
+systems.
 
 ## Default Path
 
-1. Clarify whether the caller wants to generate a new image or edit an existing one.
-2. Run the bundled script without checking or requesting `SORRYCODE_API_KEY` first. The script discovers the active Codex SorryCode provider and reuses its current key.
-3. Let the script use `SORRYCODE_API_KEY` only when the current Codex key is missing or receives a definite authentication or image-capability failure. After a timeout, disconnect, rate limit, or ambiguous service failure, do not automatically send a second paid request.
-4. If neither credential works, give the Image2 fallback setup guidance below. Do not invent a key or continue with a fake request.
-5. Let the script choose the model unless the caller explicitly passes `--model`. `auto` and standard sizes below 2K use `gpt-image-2-all`; 2K and 4K sizes use `gpt-image-2`.
-6. Use `1024x1024` by default. If the user asks for aspect ratio, high resolution, 2K / 4K, or `size`, load `references/size-guide.md` before choosing the parameter.
-7. Use `stream: true` and `partial_images: 2` by default.
-8. For editing, require a local input image path, then run the script with `--mode edit --image <path>`.
-9. Save outputs under `outputs/images/<short-slug>/` unless the user asks for another folder. The script writes request, response, summary, and streaming diagnostics without storing credentials.
-10. Confirm that `summary.json` names a saved image, then display that image with the host's image viewer. Do not report only a filesystem path.
+1. Determine whether the caller wants to generate a new image or edit an existing one.
+2. Run the bundled script without asking for an API key. The script discovers the active SorryCode Codex provider and reuses its current credential.
+3. Let the script choose the model unless the caller passes `--model`. Standard sizes use `gpt-image-2-all`; 2K and 4K sizes use `gpt-image-2`.
+4. Use `1024x1024` by default. For aspect ratios, high resolution, 2K, 4K, or an explicit `size`, read `references/size-guide.md` first.
+5. Use streaming with two partial images by default.
+6. For editing, require a local PNG, JPEG, or WebP path and pass `--mode edit --image <path>`.
+7. Save outputs under `outputs/images/<short-slug>/` unless the caller chooses another folder.
+8. Confirm that `summary.json` names a saved image, then display the image with the host viewer. Do not report only a path.
 
-## Execution Path
+## Execution
 
-Resolve `SKILL_DIR` to the directory that contains this `SKILL.md`; when editing this repository directly, `SKILL_DIR` is the repository root.
+Resolve `SKILL_DIR` to the directory containing this `SKILL.md`. Do not ask the
+user to set it.
 
-Image generation:
+Generate an image:
 
 ```bash
 node "$SKILL_DIR/scripts/sorrycode-image2.mjs" \
@@ -37,16 +34,16 @@ node "$SKILL_DIR/scripts/sorrycode-image2.mjs" \
   --out outputs/images/run
 ```
 
-When another workflow already owns the runtime prompt file, do not duplicate it:
+Use a workflow-owned prompt without duplicating it:
 
 ```bash
 node "$SKILL_DIR/scripts/sorrycode-image2.mjs" \
   --prompt-file path/to/runtime-prompt.md \
   --no-prompt-log \
-  --out path/to/run
+  --out outputs/images/run
 ```
 
-Edit mode:
+Edit a local image:
 
 ```bash
 node "$SKILL_DIR/scripts/sorrycode-image2.mjs" \
@@ -56,96 +53,61 @@ node "$SKILL_DIR/scripts/sorrycode-image2.mjs" \
   --out outputs/images/edit-run
 ```
 
-Do not ask the user to set `SKILL_DIR`; derive it from the loaded skill path before running the command.
+## API Contract
 
-## API Settings
-
-Use the active Codex SorryCode provider's `base_url` by default. If it cannot be
-discovered, use:
+Always send production image requests through the direct ingress:
 
 ```text
-https://sorrycode.com/v1/images/generations
+https://api.sorrycode.com/v1/images/generations
+https://api.sorrycode.com/v1/images/edits
 ```
 
-Default edit endpoint:
+Do not inherit the request URL from Codex configuration. The Codex provider is
+used only to locate and validate the credential.
 
-```text
-https://sorrycode.com/v1/images/edits
-```
+The default standard-size request uses `gpt-image-2-all`, `1024x1024`,
+`stream: true`, `partial_images: 2`, and `response_format: b64_json`.
+Passing `--model` overrides automatic model selection.
 
-If the user or project provides `SORRYCODE_BASE_URL`, use that value and append `/images/generations` or `/images/edits` after removing any trailing `/v1` or `/` ambiguity carefully.
+## Credential Discovery
 
-Default standard-size generation request body:
+Credential discovery belongs to the Skill, not the user:
 
-```json
-{
-  "model": "gpt-image-2-all",
-  "prompt": "...",
-  "size": "1024x1024",
-  "n": 1,
-  "stream": true,
-  "partial_images": 2,
-  "response_format": "b64_json"
-}
-```
+1. Resolve `CODEX_HOME`, defaulting to `~/.codex`.
+2. Read `config.toml` and identify the active `model_provider`.
+3. Confirm that the active provider's `base_url` belongs to `sorrycode.com` or one of its subdomains.
+4. If the provider uses `requires_openai_auth = true`, read `OPENAI_API_KEY` from `auth.json`.
+5. If the provider explicitly declares `env_key`, read only that provider-owned variable.
 
-Automatic routing treats images with both edges below `2048` and no more than about `2.1` megapixels as standard size. This includes `1024x1024`, `1536x1024`, `1600x640`, and `1920x1080`. Passing `--model` always overrides this choice.
+Never ask for a separate image key. Never scan project files, unrelated `.env`
+files, shell history, other tool configurations, or the whole filesystem for
+credentials. Never print the key or write it to diagnostics.
 
-## Credential Resolution
+If no readable credential exists, tell the user to open the SorryCode API Key
+page, choose **Connect tool > Codex**, complete that setup, and run the Skill
+again. Do not ask the user to paste a key into chat, and do not change the Codex
+installer or credential-storage settings to make discovery easier.
 
-The bundled script resolves credentials in this order:
+## Inputs And Outputs
 
-1. Confirm that the active provider in `CODEX_HOME/config.toml` points to `sorrycode.com` or one of its subdomains.
-2. For `requires_openai_auth = true`, read `OPENAI_API_KEY` from `CODEX_HOME/auth.json`. For an `env_key` provider, read only the named environment variable.
-3. If the current key is unavailable or definitely lacks image capability, use `SORRYCODE_API_KEY` as the Image2 fallback.
+The caller must supply either `--prompt` or `--prompt-file`. If neither exists,
+ask for the prompt or edit instruction rather than inventing visual direction.
 
-Never print a key, include it in diagnostics, or reuse a key from a non-SorryCode
-provider. A standalone Skill cannot extract credentials from an OS keyring; if
-Codex stores the current key there instead of `auth.json`, proceed to the
-fallback step.
+The script writes request, response, summary, streaming diagnostics, and the
+saved image under the selected output directory. It writes `prompt.txt` unless
+`--no-prompt-log` is passed.
 
-Only when the fallback is required and missing, say:
+## Failure Handling
 
-```text
-Your current Codex SorryCode key is unavailable or cannot generate images. Create or select a SorryCode API key from the Image2 group, then set it as SORRYCODE_API_KEY. This fallback key does not replace your current Codex GPT key.
-```
+- `400`: check the model, prompt, size, count, and input image format.
+- `401` or `403`: the active SorryCode Codex key is invalid or lacks image permission.
+- `503 No available compatible accounts`: the active Codex group has no compatible image account.
+- A disconnect or timeout may leave the paid request processing remotely.
 
-## Progressive Disclosure References
+Never switch credentials or automatically send a second request after a
+failure. Point to the saved diagnostics and do not claim success unless an image
+file was saved.
 
-Load references only when they are needed:
+## Reference
 
-- `references/size-guide.md`: when the user asks for aspect ratio, high resolution, 2K / 4K, or how to set `size`
-
-## Input Contract
-
-The caller supplies one of:
-
-- `--prompt "<image prompt or edit instruction>"`;
-- `--prompt-file path/to/runtime-prompt.md`.
-
-If neither is available, ask the caller for the image prompt or edit instruction
-instead of inventing visual direction.
-
-Do not maintain reusable visual styles, design systems, cover formulas,
-article-specific prompt methodology, or prompt examples here. Put reusable visual
-method in the project that owns it, such as Open Visual Grammar. Pass the
-compiled runtime prompt to this skill with `--prompt-file`.
-
-## Script Rules
-
-Use the bundled script instead of generating a new ad-hoc request script. The bundled script is dependency-free, discovers the active Codex SorryCode credential, uses built-in `fetch`, writes UTF-8 diagnostics, and parses JSON or SSE responses.
-
-If the caller already stores the runtime prompt as its own source of truth, pass
-`--no-prompt-log` so this skill does not create a duplicate `prompt.txt`.
-
-Do not hardcode secrets. Do not print the API key.
-
-## Error Handling
-
-- `401` / `403`: the current key is invalid or lacks image permission; try the configured Image2 fallback once
-- `400`: request body is malformed; check `model`, `prompt`, `size`, and `n`
-- `400 images endpoint requires an image model`: model is not enabled as an image model
-- `503 No available compatible accounts`: the current group has no compatible image account; try the configured Image2 fallback once
-- `524`: request exceeded Cloudflare's response window. Retry later, simplify the prompt, reduce size, or try `--no-stream`.
-
-When a request fails, point to the diagnostics folder and mention the exact saved files. Do not claim the image was generated unless the script saved an image file. Do not automatically retry with another key when completion or billing state is unknown.
+- Read `references/size-guide.md` only when the caller needs size or resolution guidance.

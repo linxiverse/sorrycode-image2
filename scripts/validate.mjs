@@ -4,6 +4,8 @@ import { pathToFileURL } from 'node:url';
 
 const supportedModels = ['gpt-image-2-all', 'gpt-image-2'];
 const unsupportedModels = ['gemini-3-pro-image', 'gemini-3.1-flash-image', 'gemini-3-pro-image-preview'];
+const removedCredentialTerms = ['SORRYCODE_API_KEY', 'Image2-group', 'Image2 group', 'fallback key'];
+const directIngress = 'https://api.sorrycode.com/v1';
 const pairs = [
   ['skills/sorrycode-image2/SKILL.md', 'plugins/sorrycode-image2/skills/sorrycode-image2/SKILL.md'],
   ['skills/sorrycode-image2/scripts/sorrycode-image2.mjs', 'plugins/sorrycode-image2/skills/sorrycode-image2/scripts/sorrycode-image2.mjs'],
@@ -26,10 +28,13 @@ function fail(message) {
   process.exitCode = 1;
 }
 
-async function expectNoUnsupportedModels(path) {
+async function expectPublicContract(path) {
   const content = await text(path);
   for (const model of unsupportedModels) {
     if (content.includes(model)) fail(`${path}: remove unsupported model ${model}`);
+  }
+  for (const term of removedCredentialTerms) {
+    if (content.includes(term)) fail(`${path}: remove obsolete credential term ${term}`);
   }
 }
 
@@ -38,6 +43,11 @@ async function expectModels(path) {
   for (const model of supportedModels) {
     if (!content.includes(model)) fail(`${path}: missing supported model ${model}`);
   }
+}
+
+async function expectDirectIngress(path) {
+  const content = await text(path);
+  if (!content.includes(directIngress)) fail(`${path}: missing direct SorryCode API ingress`);
 }
 
 async function expectSame(left, right) {
@@ -55,24 +65,27 @@ async function expectJSON(path) {
 }
 
 await Promise.all([
-  ...publicFiles.map(expectNoUnsupportedModels),
+  ...publicFiles.map(expectPublicContract),
   expectModels('README.md'),
   expectModels('skills/sorrycode-image2/SKILL.md'),
   expectModels('skills/sorrycode-image2/scripts/sorrycode-image2.mjs'),
+  expectDirectIngress('README.md'),
+  expectDirectIngress('skills/sorrycode-image2/SKILL.md'),
+  expectDirectIngress('skills/sorrycode-image2/scripts/sorrycode-image2.mjs'),
   ...pairs.map(([left, right]) => expectSame(left, right)),
 ]);
 
 const {
-  executeCredentialAttempts,
+  executeImageRequest,
   parseArgs,
   parseCodexSorryCodeConfig,
   redactCredentialText,
-  resolveCredentialCandidates,
+  resolveCodexCredential,
   selectDefaultModel,
-  shouldTryFallbackKey,
 } = await import(
   pathToFileURL('skills/sorrycode-image2/scripts/sorrycode-image2.mjs').href
 );
+
 const routingCases = [
   ['auto', 'gpt-image-2-all'],
   ['1024x1024', 'gpt-image-2-all'],
@@ -85,128 +98,113 @@ const routingCases = [
 ];
 
 for (const [size, expected] of routingCases) {
-  if (selectDefaultModel(size) !== expected) {
-    fail(`Unexpected automatic model for ${size}`);
-  }
+  if (selectDefaultModel(size) !== expected) fail(`Unexpected automatic model for ${size}`);
 }
 
 if (parseArgs(['--size', '2048x2048', '--model', 'gpt-image-2-all']).model !== 'gpt-image-2-all') {
   fail('An explicit --model must override automatic routing');
 }
+if (parseArgs(['--base-url', 'https://example.com']).baseUrl !== undefined) {
+  fail('The production endpoint must not be overridden from the command line');
+}
 
 const configFixture = `
-model_provider = "sorrycode"
+model_provider = "custom-sorrycode"
 
-[model_providers.sorrycode]
+[model_providers.custom-sorrycode]
 name = "SorryCode"
 base_url = "https://api.sorrycode.com/v1"
 wire_api = "responses"
 requires_openai_auth = true
+env_key = "STALE_PROVIDER_KEY"
 `;
 const parsedProvider = parseCodexSorryCodeConfig(configFixture);
-if (parsedProvider?.providerId !== 'sorrycode' || parsedProvider?.baseUrl !== 'https://api.sorrycode.com/v1') {
-  fail('The active SorryCode provider must be discovered from Codex config');
+if (parsedProvider?.providerId !== 'custom-sorrycode' || parsedProvider?.baseUrl !== directIngress) {
+  fail('The active SorryCode provider must be discovered by its configured URL');
 }
 if (parseCodexSorryCodeConfig(configFixture.replace('api.sorrycode.com', 'api.openai.com')) !== null) {
   fail('Credentials from non-SorryCode providers must not be reused');
 }
 
-const resolvedCredentials = await resolveCredentialCandidates({
-  env: { CODEX_HOME: '/fake-codex', SORRYCODE_API_KEY: 'sk-image-fallback' },
+const resolvedCredential = await resolveCodexCredential({
+  env: { CODEX_HOME: '/fake-codex', STALE_PROVIDER_KEY: 'sk-not-current' },
   read: async (path) => path.endsWith('config.toml')
     ? configFixture
     : JSON.stringify({ OPENAI_API_KEY: 'sk-codex-current' }),
 });
-if (resolvedCredentials.candidates.map(({ source }) => source).join(',') !== 'codex,fallback') {
-  fail('Codex credentials must be tried before the Image2 fallback key');
-}
-if (!shouldTryFallbackKey(403, '{"error":{"message":"image generation disabled"}}')) {
-  fail('A definite image permission failure must allow the fallback key');
-}
-if (shouldTryFallbackKey(429, '{"error":{"message":"rate limited"}}') ||
-    shouldTryFallbackKey(524, 'timeout') ||
-    shouldTryFallbackKey(503, 'temporary upstream failure')) {
-  fail('Ambiguous or service-wide failures must not trigger a second paid request');
+if (resolvedCredential.credential?.source !== 'codex' || resolvedCredential.credential?.key !== 'sk-codex-current') {
+  fail('The active Codex auth file credential must take precedence when requires_openai_auth is true');
 }
 
-const candidates = [
-  { key: 'sk-current', source: 'codex' },
-  { key: 'sk-image', source: 'fallback' },
-];
+const envProviderFixture = `
+model_provider = "custom-sorrycode"
+
+[model_providers.custom-sorrycode]
+base_url = "https://sorrycode.com/v1"
+env_key = "CURRENT_PROVIDER_KEY"
+`;
+const resolvedProviderEnv = await resolveCodexCredential({
+  env: { CODEX_HOME: '/fake-codex', CURRENT_PROVIDER_KEY: 'sk-provider-current' },
+  read: async (path) => path.endsWith('config.toml') ? envProviderFixture : '{}',
+});
+if (resolvedProviderEnv.credential?.key !== 'sk-provider-current') {
+  fail('A provider-declared credential source must remain reusable');
+}
+
+const credential = { key: 'sk-current', source: 'codex' };
 const buildRequest = (key) => ({ headers: { Authorization: `Bearer ${key}` }, body: '{}' });
-
-let seenKeys = [];
-const primaryResult = await executeCredentialAttempts({
-  endpoint: 'https://sorrycode.invalid/v1/images/generations',
-  candidates,
+let seenRequests = 0;
+const rejected = await executeImageRequest({
+  endpoint: 'https://api.sorrycode.com/v1/images/generations',
+  credential,
   buildRequest,
-  fetchImpl: async (_endpoint, request) => {
-    seenKeys.push(request.headers.Authorization.slice('Bearer '.length));
-    return new Response('{"data":[]}', { status: 200, headers: { 'Content-Type': 'application/json' } });
+  fetchImpl: async () => {
+    seenRequests += 1;
+    return new Response('{"error":{"message":"image generation disabled"}}', {
+      status: 403,
+      headers: { 'Content-Type': 'application/json' },
+    });
   },
 });
-if (primaryResult.credentialSource !== 'codex' || seenKeys.join(',') !== 'sk-current') {
-  fail('A working current Codex key must be used without touching the fallback key');
+if (rejected.response.status !== 403 || seenRequests !== 1) {
+  fail('A rejected image request must not switch credentials or retry');
 }
 
-seenKeys = [];
-let fallbackNoticeCount = 0;
-const fallbackResult = await executeCredentialAttempts({
-  endpoint: 'https://sorrycode.invalid/v1/images/generations',
-  candidates,
-  buildRequest,
-  fetchImpl: async (_endpoint, request) => {
-    const key = request.headers.Authorization.slice('Bearer '.length);
-    seenKeys.push(key);
-    if (key === 'sk-current') {
-      return new Response('{"error":{"message":"image generation disabled for group"}}', {
-        status: 403,
-        headers: { 'Content-Type': 'application/json' },
-      });
-    }
-    return new Response('{"data":[]}', { status: 200, headers: { 'Content-Type': 'application/json' } });
-  },
-  onFallback: async () => { fallbackNoticeCount += 1; },
-});
-if (fallbackResult.credentialSource !== 'fallback' ||
-    seenKeys.join(',') !== 'sk-current,sk-image' ||
-    fallbackNoticeCount !== 1) {
-  fail('The Image2 key must be used only after a definite current-key capability failure');
-}
-
-seenKeys = [];
+seenRequests = 0;
 let networkError = null;
 try {
-  await executeCredentialAttempts({
-    endpoint: 'https://sorrycode.invalid/v1/images/generations',
-    candidates,
+  await executeImageRequest({
+    endpoint: 'https://api.sorrycode.com/v1/images/generations',
+    credential,
     buildRequest,
-    fetchImpl: async (_endpoint, request) => {
-      seenKeys.push(request.headers.Authorization.slice('Bearer '.length));
+    fetchImpl: async () => {
+      seenRequests += 1;
       throw new Error('connection lost');
     },
   });
 } catch (error) {
   networkError = error;
 }
-if (!networkError?.message.includes('fallback key was not tried') || seenKeys.join(',') !== 'sk-current') {
-  fail('An ambiguous network failure must not trigger the fallback key');
+if (!networkError?.message.includes('was not retried') || seenRequests !== 1) {
+  fail('An ambiguous network failure must remain a single request');
 }
 
-const missingCredentials = await resolveCredentialCandidates({
-  env: { CODEX_HOME: '/fake-codex', SORRYCODE_API_KEY: '' },
+const missingCredential = await resolveCodexCredential({
+  env: { CODEX_HOME: '/fake-codex' },
   read: async (path) => path.endsWith('config.toml') ? 'model_provider = "openai"\n' : '{}',
 });
-if (missingCredentials.candidates.length !== 0) {
-  fail('Missing current and fallback credentials must remain an explicit setup state');
+if (missingCredential.credential !== null) {
+  fail('Missing Codex credentials must remain an explicit setup state');
 }
 
-const redactedDiagnostic = redactCredentialText(
-  'authorization=sk-current echoed=sk-image',
-  candidates,
-);
-if (redactedDiagnostic.includes('sk-current') || redactedDiagnostic.includes('sk-image')) {
+const redactedDiagnostic = redactCredentialText('authorization=sk-current', [credential]);
+if (redactedDiagnostic.includes('sk-current')) {
   fail('Known credentials must be removed from diagnostics and error messages');
+}
+
+const sourceScript = await text('skills/sorrycode-image2/scripts/sorrycode-image2.mjs');
+if (!sourceScript.includes('mimeFromImagePath') || !sourceScript.includes("type: mimeFromImagePath(args.image)")) {
+  fail('Image edits must send the correct PNG, JPEG, or WebP MIME type');
 }
 
 const codexMarketplace = await expectJSON('.agents/plugins/marketplace.json');

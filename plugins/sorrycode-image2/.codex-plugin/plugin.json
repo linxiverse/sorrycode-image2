@@ -1,6 +1,6 @@
 {
   "name": "sorrycode-image2",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Generate and edit images by reusing the active Codex SorryCode key.",
   "author": {
     "name": "Linxiverse",
@@ -19,7 +19,7 @@
   "interface": {
     "displayName": "SorryCode Image2",
     "shortDescription": "Generate images with your current SorryCode key",
-    "longDescription": "SorryCode Image2 reuses the active Codex SorryCode provider key for Images API generation and editing. It asks for an Image2-group SORRYCODE_API_KEY only when the current key is unavailable or lacks image capability, and never stores credentials in diagnostics.",
+    "longDescription": "SorryCode Image2 discovers and reuses the active Codex SorryCode provider key for image generation and editing through the direct api.sorrycode.com ingress. It does not require a separate image credential and never stores credentials in diagnostics.",
     "developerName": "Linxiverse",
     "category": "Creative Tools",
     "capabilities": [

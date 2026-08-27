@@ -3,10 +3,9 @@
 Generate and edit images through the SorryCode Images API with
 `gpt-image-2-all` and `gpt-image-2`.
 
-In Codex, the Skill reuses the active SorryCode provider key from the user's
-existing Codex configuration. No extra Image2 key is required by default.
-`SORRYCODE_API_KEY` is consulted only when the current Codex key is unavailable
-or definitely cannot generate images.
+The Skill finds and reuses the active SorryCode Codex provider key. Users do not
+create a separate image key or configure a Skill-specific environment variable.
+Image requests use the direct `https://api.sorrycode.com/v1` ingress.
 
 Supported models:
 
@@ -58,12 +57,10 @@ codex plugin add sorrycode-image2@sorrycode-image2
 
 - confirms the active Codex provider points to SorryCode
 - reuses the current Codex SorryCode login key without printing or logging it
-- checks `SORRYCODE_API_KEY` only after the current key is unavailable or lacks image capability
-- tells users to configure an Image2-group key only when that fallback is needed
 - selects `gpt-image-2-all` for standard-size work and `gpt-image-2` for 2K/4K work
-- generates new images through `/v1/images/generations`
+- generates new images through `https://api.sorrycode.com/v1/images/generations`
 - uses `stream: true` and `partial_images: 2` by default
-- edits existing local images through `/v1/images/edits`
+- edits existing local images through `https://api.sorrycode.com/v1/images/edits`
 - saves API request/response diagnostics and image outputs under `outputs/images/`
 - can skip duplicate prompt logging with `--no-prompt-log` when another workflow already owns the runtime prompt file
 - keeps advanced size guidance in `references/size-guide.md`
@@ -72,10 +69,9 @@ It does not teach agents how to write image prompts, choose visual styles, or
 design covers. Pass a prompt from the caller or from another workflow.
 
 The script reads the current key only inside the request process. It never
-prints it or writes it to diagnostics. If Codex stores credentials in an OS
-keyring rather than `auth.json`, the standalone Skill cannot extract them and
-uses the independent Image2 fallback instead. Non-Codex hosts such as Claude
-Code also use `SORRYCODE_API_KEY`.
+prints it or writes it to diagnostics. Claude Code uses the same Codex
+configuration on the machine. If no readable credential exists, complete the
+SorryCode **Connect tool > Codex** setup first and run the Skill again.
 
 ## Script Usage
 

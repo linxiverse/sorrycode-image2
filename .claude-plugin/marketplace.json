@@ -9,7 +9,7 @@
     {
       "name": "sorrycode-image2",
       "description": "Generates or edits images through the SorryCode Images API with automatic standard and high-resolution model routing.",
-      "version": "0.2.0",
+      "version": "0.2.1",
       "category": "creative",
       "source": "./plugins/sorrycode-image2",
       "homepage": "https://github.com/linxiverse/sorrycode-image2",

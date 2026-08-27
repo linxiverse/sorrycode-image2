@@ -47,11 +47,13 @@ Before using a community reference size, tell the user briefly:
 I can try this higher-resolution size with gpt-image-2. It may take longer, so I will keep stream:true and partial_images:2 enabled and save the streaming events.
 ```
 
-If the request fails with `400`, `524`, timeout, or upstream failure, retry once with the closest conservative streaming request:
+If the API rejects the size with `400`, inspect the diagnostics before starting a new request. When the user chooses to try a conservative size, use this mapping:
 
 - `2048x2048` -> `1024x1024`
 - `2048x1152` or `3840x2160` -> `1536x1024`
 - `2160x3840` -> `1024x1536`
+
+After a timeout, disconnect, or upstream failure, do not start another request automatically. The original paid request may still be processing; check its state first.
 
 ## Request examples
 
