@@ -1,5 +1,7 @@
 #!/usr/bin/env node
-import { readFile } from 'node:fs/promises';
+import { mkdtemp, readFile, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
 const supportedModels = ['gpt-image-2-all', 'gpt-image-2'];
@@ -76,11 +78,15 @@ await Promise.all([
 ]);
 
 const {
+  apiErrorDetail,
   executeImageRequest,
+  fallbackAllowedForHttpStatus,
+  modelCandidates,
   parseArgs,
   parseCodexSorryCodeConfig,
   redactCredentialText,
   resolveCodexCredential,
+  saveImage,
   selectDefaultModel,
 } = await import(
   pathToFileURL('skills/sorrycode-image2/scripts/sorrycode-image2.mjs').href
@@ -103,6 +109,18 @@ for (const [size, expected] of routingCases) {
 
 if (parseArgs(['--size', '2048x2048', '--model', 'gpt-image-2-all']).model !== 'gpt-image-2-all') {
   fail('An explicit --model must override automatic routing');
+}
+if (modelCandidates('1024x1024').join(',') !== 'gpt-image-2-all,gpt-image-2') {
+  fail('Standard-size requests must try both supported models in order');
+}
+if (modelCandidates('1024x1024', 'gpt-image-2-all').length !== 1) {
+  fail('An explicit model must disable automatic model fallback');
+}
+if (fallbackAllowedForHttpStatus(403) || !fallbackAllowedForHttpStatus(503)) {
+  fail('Credential and group failures must stop fallback while availability failures may continue');
+}
+if (!apiErrorDetail('{"code":"GROUP_DELETED","message":"group was deleted"}').includes('GROUP_DELETED')) {
+  fail('Top-level SorryCode API errors must remain visible in diagnostics');
 }
 if (parseArgs(['--base-url', 'https://example.com']).baseUrl !== undefined) {
   fail('The production endpoint must not be overridden from the command line');
@@ -200,6 +218,24 @@ if (missingCredential.credential !== null) {
 const redactedDiagnostic = redactCredentialText('authorization=sk-current', [credential]);
 if (redactedDiagnostic.includes('sk-current')) {
   fail('Known credentials must be removed from diagnostics and error messages');
+}
+
+const imageDownloadDir = await mkdtemp(join(tmpdir(), 'sorrycode-image2-'));
+try {
+  const imageFile = await saveImage(
+    imageDownloadDir,
+    { kind: 'url', value: 'https://example.com/generated.png' },
+    async () => new Response(new Uint8Array([1, 2, 3]), {
+      status: 200,
+      headers: { 'Content-Type': 'image/png' },
+    }),
+  );
+  const savedBytes = await readFile(join(imageDownloadDir, imageFile));
+  if (imageFile !== 'image.png' || savedBytes.length !== 3) {
+    fail('URL image results must be downloaded as image files');
+  }
+} finally {
+  await rm(imageDownloadDir, { recursive: true, force: true });
 }
 
 const sourceScript = await text('skills/sorrycode-image2/scripts/sorrycode-image2.mjs');

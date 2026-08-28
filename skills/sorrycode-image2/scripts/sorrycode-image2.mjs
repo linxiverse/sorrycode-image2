@@ -85,11 +85,11 @@ export async function executeImageRequest({ endpoint, credential, buildRequest, 
   } catch (error) {
     throw new Error(`SorryCode image request did not complete (${error instanceof Error ? error.message : String(error)}). The request was not retried because it may still be processing.`);
   }
-  return {
-    response,
-    credentialSource: credential.source,
-    responseText: response.ok ? null : await response.text(),
-  };
+  let responseText = null;
+  if (!response.ok) {
+    try { responseText = await response.text(); } catch { responseText = ''; }
+  }
+  return { response, credentialSource: credential.source, responseText };
 }
 
 export function selectDefaultModel(size) {
@@ -105,6 +105,28 @@ export function selectDefaultModel(size) {
     width * height <= STANDARD_MAX_PIXELS;
 
   return isStandardSize ? STANDARD_MODEL : HIGH_RES_MODEL;
+}
+
+export function modelCandidates(size, explicitModel) {
+  if (explicitModel) return [explicitModel];
+  const primary = selectDefaultModel(size);
+  return primary === STANDARD_MODEL ? [STANDARD_MODEL, HIGH_RES_MODEL] : [HIGH_RES_MODEL];
+}
+
+export function fallbackAllowedForHttpStatus(status) {
+  return status === 400 || status === 404 || status === 409 || status === 429 || status >= 500;
+}
+
+export function apiErrorDetail(responseText) {
+  try {
+    const payload = JSON.parse(responseText);
+    const code = payload?.error?.code || payload?.code;
+    const message = payload?.error?.message || payload?.message;
+    const parts = [...new Set([code, message].filter((value) => typeof value === 'string' && value))];
+    return parts.length > 0 ? `: ${parts.join(' - ')}` : '';
+  } catch {
+    return '';
+  }
 }
 
 export function parseArgs(argv) {
@@ -137,7 +159,8 @@ export function parseArgs(argv) {
     else if (key === 'no-prompt-log') args.promptLog = false;
     else if (key === 'prompt-log') args.promptLog = true;
   }
-  args.model ??= selectDefaultModel(args.size);
+  args.models = modelCandidates(args.size, args.model);
+  args.model = args.models[0];
   return args;
 }
 
@@ -151,9 +174,9 @@ Supported models:
   ${SUPPORTED_MODELS.join('\n  ')}
 
 Automatic model selection:
-  gpt-image-2-all   auto and standard sizes below 2K (up to about 2.1 MP)
+  standard sizes    try gpt-image-2-all, then gpt-image-2 after an explicit failure
   gpt-image-2       2K and 4K sizes
-  --model           overrides automatic selection
+  --model           use only the explicitly selected model
 
 Environment:
   CODEX_HOME           optional, defaults to ~/.codex
@@ -213,11 +236,16 @@ function imageFromPayload(payload) {
   return null;
 }
 
-async function saveImage(outDir, image) {
+export async function saveImage(outDir, image, fetchImpl = fetch) {
   if (!image) return null;
   if (image.kind === 'url') {
-    await writeFile(join(outDir, 'image-url.txt'), `${image.value}\n`, 'utf8');
-    return 'image-url.txt';
+    const url = new URL(image.value);
+    if (url.protocol !== 'https:') throw new Error('Image result URL must use HTTPS.');
+    const response = await fetchImpl(url);
+    if (!response.ok) throw new Error(`Image result download failed: HTTP ${response.status}.`);
+    const file = `image.${extensionFromMime(response.headers.get('content-type') || 'image/png')}`;
+    await writeFile(join(outDir, file), Buffer.from(await response.arrayBuffer()));
+    return file;
   }
   const match = image.value.match(/^data:([^;]+);base64,(.*)$/s);
   const mime = match ? match[1] : image.mime || 'image/png';
@@ -284,8 +312,9 @@ async function main() {
     return;
   }
 
-  if (!SUPPORTED_MODELS.includes(args.model)) {
-    throw new Error(`Unsupported model "${args.model}". Supported models: ${SUPPORTED_MODELS.join(', ')}.`);
+  const unsupportedModel = args.models.find((model) => !SUPPORTED_MODELS.includes(model));
+  if (unsupportedModel) {
+    throw new Error(`Unsupported model "${unsupportedModel}". Supported models: ${SUPPORTED_MODELS.join(', ')}.`);
   }
 
   const credentials = await resolveCodexCredential();
@@ -306,104 +335,149 @@ async function main() {
   }
 
   const endpoint = endpointFor(DEFAULT_BASE_URL, mode);
-
-  let requestForLog = {
-    model: args.model,
-    prompt,
-    size: args.size,
-    n: args.n,
-    response_format: 'b64_json',
-  };
-  if (args.stream) {
-    requestForLog.stream = true;
-    requestForLog.partial_images = args.partialImages;
-  }
-
   const imageBytes = mode === 'edit' ? await readFile(args.image) : null;
-  if (mode === 'edit') {
-    requestForLog.image = args.image;
-  }
+  const attempts = [];
+  let imageFile = null;
+  let finalResult = null;
+  let stopReason = 'models_exhausted';
 
-  await writeFile(join(outDir, 'request.json'), JSON.stringify(requestForLog, null, 2), 'utf8');
+  for (let index = 0; index < args.models.length; index += 1) {
+    const model = args.models[index];
+    const hasNextModel = index + 1 < args.models.length;
+    const attemptRelativeDir = join('attempts', `${String(index + 1).padStart(2, '0')}-${model}`);
+    const attemptDir = join(outDir, attemptRelativeDir);
+    await mkdir(attemptDir, { recursive: true });
 
-  const buildRequest = (apiKey) => {
-    const headers = {
-      Authorization: `Bearer ${apiKey}`,
-      Accept: args.stream ? 'text/event-stream' : 'application/json',
+    const requestForLog = {
+      model,
+      prompt,
+      size: args.size,
+      n: args.n,
+      response_format: 'b64_json',
+      ...(args.stream ? { stream: true, partial_images: args.partialImages } : {}),
+      ...(mode === 'edit' ? { image: args.image } : {}),
     };
-    if (mode !== 'edit') {
-      headers['Content-Type'] = 'application/json';
-      return { headers, body: JSON.stringify(requestForLog) };
-    }
+    await writeFile(join(attemptDir, 'request.json'), JSON.stringify(requestForLog, null, 2), 'utf8');
 
-    const form = new FormData();
-    form.set('model', args.model);
-    form.set('prompt', prompt);
-    form.set('size', args.size);
-    form.set('response_format', 'b64_json');
-    if (args.stream) {
-      form.set('stream', 'true');
-      form.set('partial_images', String(args.partialImages));
-    }
-    form.set('image', new Blob([imageBytes], { type: mimeFromImagePath(args.image) }), basename(args.image));
-    return { headers, body: form };
-  };
+    const buildRequest = (apiKey) => {
+      const headers = {
+        Authorization: `Bearer ${apiKey}`,
+        Accept: args.stream ? 'text/event-stream' : 'application/json',
+      };
+      if (mode !== 'edit') {
+        headers['Content-Type'] = 'application/json';
+        return { headers, body: JSON.stringify(requestForLog) };
+      }
 
-  const attempt = await executeImageRequest({
-    endpoint,
-    credential: credentials.credential,
-    buildRequest,
-  });
-  const { response, credentialSource, responseText } = attempt;
-  if (!response) throw new Error('SorryCode image request did not return a response.');
-  if (!response.ok) {
-    const safeHeaders = redactCredentialText(headersToText(response.headers), credentialKeys);
-    const safeResponse = redactCredentialText(responseText, credentialKeys);
-    await writeFile(join(outDir, 'headers.txt'), `HTTP ${response.status}\n${safeHeaders}`, 'utf8');
-    await writeFile(join(outDir, 'curl-response.txt'), safeResponse, 'utf8');
-    let detail = '';
+      const form = new FormData();
+      form.set('model', model);
+      form.set('prompt', prompt);
+      form.set('size', args.size);
+      form.set('response_format', 'b64_json');
+      if (args.stream) {
+        form.set('stream', 'true');
+        form.set('partial_images', String(args.partialImages));
+      }
+      form.set('image', new Blob([imageBytes], { type: mimeFromImagePath(args.image) }), basename(args.image));
+      return { headers, body: form };
+    };
+
     try {
-      const payload = JSON.parse(responseText);
-      if (payload?.error?.message) detail = `: ${payload.error.message}`;
-    } catch {}
-    detail = redactCredentialText(detail, credentialKeys);
-    throw new Error(`SorryCode image request failed: HTTP ${response.status}${detail}. Diagnostics saved to ${outDir}`);
+      const { response, responseText } = await executeImageRequest({
+        endpoint,
+        credential: credentials.credential,
+        buildRequest,
+      });
+      const safeHeaders = redactCredentialText(headersToText(response.headers), credentialKeys);
+      await writeFile(join(attemptDir, 'headers.txt'), `HTTP ${response.status}\n${safeHeaders}`, 'utf8');
+
+      if (!response.ok) {
+        const safeResponse = redactCredentialText(responseText, credentialKeys);
+        const detail = redactCredentialText(apiErrorDetail(responseText), credentialKeys);
+        await writeFile(join(attemptDir, 'curl-response.txt'), safeResponse, 'utf8');
+        finalResult = {
+          model,
+          status: response.status,
+          imageFile: null,
+          outcome: 'rejected',
+          message: `HTTP ${response.status}${detail}`,
+          diagnostics: attemptRelativeDir,
+        };
+        attempts.push(finalResult);
+        if (hasNextModel && fallbackAllowedForHttpStatus(response.status)) continue;
+        stopReason = fallbackAllowedForHttpStatus(response.status) ? 'models_exhausted' : 'request_rejected';
+        break;
+      }
+
+      const contentType = response.headers.get('content-type') || '';
+      let finalPayload = null;
+      let eventCount = 0;
+      let firstEventMs = null;
+      if (contentType.includes('text/event-stream')) {
+        const result = await readStreamingResponse(response, attemptDir);
+        finalPayload = result.finalPayload;
+        eventCount = result.eventCount;
+        firstEventMs = result.firstEventMs;
+      } else {
+        finalPayload = await response.json();
+        await writeFile(join(attemptDir, 'response.json'), JSON.stringify(finalPayload, null, 2), 'utf8');
+      }
+
+      const savedFile = await saveImage(attemptDir, imageFromPayload(finalPayload));
+      imageFile = savedFile ? join(attemptRelativeDir, savedFile) : null;
+      finalResult = {
+        model,
+        status: response.status,
+        contentType,
+        eventCount,
+        firstEventMs,
+        imageFile,
+        outcome: imageFile ? 'completed' : 'completed_without_image',
+        message: imageFile ? null : 'API returned success without a saved image',
+        diagnostics: attemptRelativeDir,
+      };
+      attempts.push(finalResult);
+      if (imageFile) {
+        stopReason = null;
+        break;
+      }
+      if (!hasNextModel) break;
+    } catch (error) {
+      const message = redactCredentialText(error instanceof Error ? error.message : String(error), credentialKeys);
+      await writeFile(join(attemptDir, 'error.txt'), `${message}\n`, 'utf8');
+      finalResult = {
+        model,
+        status: null,
+        imageFile: null,
+        outcome: 'request_state_unknown',
+        message,
+        diagnostics: attemptRelativeDir,
+      };
+      attempts.push(finalResult);
+      stopReason = 'request_state_unknown';
+      break;
+    }
   }
-  const safeHeaders = redactCredentialText(headersToText(response.headers), credentialKeys);
-  await writeFile(join(outDir, 'headers.txt'), `HTTP ${response.status}\n${safeHeaders}`, 'utf8');
 
-  const contentType = response.headers.get('content-type') || '';
-
-  let finalPayload = null;
-  let eventCount = 0;
-  let firstEventMs = null;
-  if (contentType.includes('text/event-stream')) {
-    const result = await readStreamingResponse(response, outDir);
-    finalPayload = result.finalPayload;
-    eventCount = result.eventCount;
-    firstEventMs = result.firstEventMs;
-  } else {
-    finalPayload = await response.json();
-    await writeFile(join(outDir, 'response.json'), JSON.stringify(finalPayload, null, 2), 'utf8');
-  }
-
-  const imageFile = await saveImage(outDir, imageFromPayload(finalPayload));
   await writeFile(join(outDir, 'summary.json'), JSON.stringify({
     endpoint,
     mode,
-    model: args.model,
+    candidateModels: args.models,
+    model: imageFile ? finalResult?.model : null,
     size: args.size,
-    status: response.status,
-    contentType,
-    eventCount,
-    firstEventMs,
+    status: finalResult?.status ?? null,
+    contentType: finalResult?.contentType || null,
+    eventCount: finalResult?.eventCount ?? 0,
+    firstEventMs: finalResult?.firstEventMs ?? null,
+    attempts,
     imageFile,
     credentialSource: 'codex-sorrycode-provider',
+    stopReason,
     promptLog: args.promptLog ? 'prompt.txt' : null,
   }, null, 2), 'utf8');
 
   if (!imageFile) {
-    throw new Error(`SorryCode returned success without a saved image. Diagnostics saved to ${outDir}`);
+    throw new Error(`${finalResult?.message || 'No SorryCode image model produced a saved image'}. Diagnostics saved to ${outDir}`);
   }
   process.stdout.write(`Saved SorryCode image outputs to ${outDir}\n`);
   process.stdout.write(`Image: ${imageFile}\n`);
