@@ -5,11 +5,8 @@ import { basename, extname, join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
 const DEFAULT_BASE_URL = 'https://api.sorrycode.com/v1';
-const STANDARD_MODEL = 'gpt-image-2-all';
-const HIGH_RES_MODEL = 'gpt-image-2';
-const SUPPORTED_MODELS = [STANDARD_MODEL, HIGH_RES_MODEL];
-const STANDARD_MAX_PIXELS = 2_100_000;
-const HIGH_RES_EDGE = 2048;
+const DEFAULT_MODEL = 'gpt-image-2';
+const SUPPORTED_MODELS = [DEFAULT_MODEL];
 const CODEX_SETUP_GUIDANCE = 'Connect Codex from the SorryCode API Key page, then run this Skill again. Do not paste the key into chat or configure a separate image key.';
 
 function isSorryCodeUrl(value) {
@@ -92,29 +89,12 @@ export async function executeImageRequest({ endpoint, credential, buildRequest, 
   return { response, credentialSource: credential.source, responseText };
 }
 
-export function selectDefaultModel(size) {
-  if (!size || size === 'auto') return STANDARD_MODEL;
-
-  const match = /^(\d+)x(\d+)$/.exec(size);
-  if (!match) return STANDARD_MODEL;
-
-  const width = Number(match[1]);
-  const height = Number(match[2]);
-  const isStandardSize =
-    Math.max(width, height) < HIGH_RES_EDGE &&
-    width * height <= STANDARD_MAX_PIXELS;
-
-  return isStandardSize ? STANDARD_MODEL : HIGH_RES_MODEL;
+export function selectDefaultModel(_size) {
+  return DEFAULT_MODEL;
 }
 
 export function modelCandidates(size, explicitModel) {
-  if (explicitModel) return [explicitModel];
-  const primary = selectDefaultModel(size);
-  return primary === STANDARD_MODEL ? [STANDARD_MODEL, HIGH_RES_MODEL] : [HIGH_RES_MODEL];
-}
-
-export function fallbackAllowedForHttpStatus(status) {
-  return status === 400 || status === 404 || status === 409 || status === 429 || status >= 500;
+  return [explicitModel || selectDefaultModel(size)];
 }
 
 export function apiErrorDetail(responseText) {
@@ -170,13 +150,12 @@ function usage() {
   node scripts/sorrycode-image2.mjs --prompt-file runtime-prompt.md --no-prompt-log --out outputs/images/run
   node scripts/sorrycode-image2.mjs --mode edit --image ./input.png --prompt "<edit instruction>" --out outputs/images/edit
 
-Supported models:
+Supported model:
   ${SUPPORTED_MODELS.join('\n  ')}
 
-Automatic model selection:
-  standard sizes    try gpt-image-2-all, then gpt-image-2 after an explicit failure
-  gpt-image-2       2K and 4K sizes
-  --model           use only the explicitly selected model
+Model selection:
+  all sizes         use gpt-image-2
+  --model           optionally specify gpt-image-2 explicitly
 
 Environment:
   CODEX_HOME           optional, defaults to ~/.codex
@@ -339,11 +318,10 @@ async function main() {
   const attempts = [];
   let imageFile = null;
   let finalResult = null;
-  let stopReason = 'models_exhausted';
+  let stopReason = 'request_failed';
 
   for (let index = 0; index < args.models.length; index += 1) {
     const model = args.models[index];
-    const hasNextModel = index + 1 < args.models.length;
     const attemptRelativeDir = join('attempts', `${String(index + 1).padStart(2, '0')}-${model}`);
     const attemptDir = join(outDir, attemptRelativeDir);
     await mkdir(attemptDir, { recursive: true });
@@ -404,8 +382,7 @@ async function main() {
           diagnostics: attemptRelativeDir,
         };
         attempts.push(finalResult);
-        if (hasNextModel && fallbackAllowedForHttpStatus(response.status)) continue;
-        stopReason = fallbackAllowedForHttpStatus(response.status) ? 'models_exhausted' : 'request_rejected';
+        stopReason = 'request_rejected';
         break;
       }
 
@@ -441,7 +418,8 @@ async function main() {
         stopReason = null;
         break;
       }
-      if (!hasNextModel) break;
+      stopReason = 'completed_without_image';
+      break;
     } catch (error) {
       const message = redactCredentialText(error instanceof Error ? error.message : String(error), credentialKeys);
       await writeFile(join(attemptDir, 'error.txt'), `${message}\n`, 'utf8');

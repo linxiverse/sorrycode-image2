@@ -1,27 +1,27 @@
 ---
 name: sorrycode-image2
-description: Generate or edit images through the SorryCode Images API with automatic model fallback and visual result checks. Reuse the active SorryCode Codex provider key; use for reproducible image generation, local image editing, fixed output paths, or saved diagnostics.
+description: Generate or edit images through the SorryCode Images API with visual result checks. Reuse the active SorryCode Codex provider key; use for reproducible image generation, local image editing, fixed output paths, or saved diagnostics.
 ---
 
 # SorryCode Image2
 
 Deliver an image that satisfies the caller's request through the SorryCode
 Images API. An API response or saved path is only an intermediate result. This
-Skill owns credential discovery, request execution, model fallback, output
+Skill owns credential discovery, request execution, model selection, output
 files, and result checks.
 
 ## Default Path
 
 1. Determine whether the caller wants to generate a new image or edit an existing one.
 2. Run the bundled script without asking for an API key. The script discovers the active SorryCode Codex provider and reuses its current credential.
-3. Let the script choose the model unless the caller passes `--model`. Standard sizes try `gpt-image-2-all`, then `gpt-image-2` after an explicit retryable failure. 2K and 4K sizes use `gpt-image-2`.
+3. Use `gpt-image-2` for every supported size. Passing `--model gpt-image-2` is optional.
 4. Use `1024x1024` by default. For aspect ratios, high resolution, 2K, 4K, or an explicit `size`, read `references/size-guide.md` first.
 5. Use streaming with two partial images by default.
 6. For editing, require a local PNG, JPEG, or WebP path and pass `--mode edit --image <path>`.
 7. Save outputs under `outputs/images/<short-slug>/` unless the caller chooses another folder.
 8. Confirm that `summary.json` names a saved image, then display the image with the host viewer. Do not report only a path.
 9. Check the displayed image against the requested subject, composition, aspect ratio, text, and edit constraints. If it misses a requirement, revise the prompt or parameters and run a materially different attempt. Continue until an image passes or a failure below makes another paid request unsafe.
-10. If both SorryCode models finish with known results but save no image, use another image generator only when the current session exposes a concrete callable tool. A Skill or mode named `imagegen` does not by itself provide that tool.
+10. If the SorryCode request finishes with a known result but saves no image, use another image generator only when the current session exposes a concrete callable tool. A Skill or mode named `imagegen` does not by itself provide that tool.
 
 ## Execution
 
@@ -67,10 +67,9 @@ https://api.sorrycode.com/v1/images/edits
 Do not inherit the request URL from Codex configuration. The Codex provider is
 used only to locate and validate the credential.
 
-The default standard-size request starts with `gpt-image-2-all`, `1024x1024`,
-`stream: true`, `partial_images: 2`, and `response_format: b64_json`. The script
-tries `gpt-image-2` only after a completed empty result or an explicit retryable
-HTTP rejection. Passing `--model` limits execution to that model.
+The default request uses `gpt-image-2`, `1024x1024`, `stream: true`,
+`partial_images: 2`, and `response_format: b64_json`. Passing `--model`
+is optional and only `gpt-image-2` is supported.
 
 ## Credential Discovery
 
@@ -102,7 +101,7 @@ model's request, response, streaming diagnostics, and saved image under
 
 ## Failure Handling
 
-- `400`, `404`, `409`, `429`, or `5xx`: the script may try the next compatible model after the server explicitly rejects the request.
+- `400`, `404`, `409`, `429`, or `5xx`: stop and inspect the saved diagnostics.
 - `401`, `402`, or `403`: stop; the active SorryCode Codex key, balance, or group must be fixed first.
 - A disconnect, timeout, interrupted response, or failed image download may leave the paid request processing remotely. Stop instead of submitting another model request.
 

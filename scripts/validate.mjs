@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
-const supportedModels = ['gpt-image-2-all', 'gpt-image-2'];
+const supportedModels = ['gpt-image-2'];
 const unsupportedModels = ['gemini-3-pro-image', 'gemini-3.1-flash-image', 'gemini-3-pro-image-preview'];
 const removedCredentialTerms = ['SORRYCODE_API_KEY', 'Image2-group', 'Image2 group', 'fallback key'];
 const directIngress = 'https://api.sorrycode.com/v1';
@@ -80,7 +80,6 @@ await Promise.all([
 const {
   apiErrorDetail,
   executeImageRequest,
-  fallbackAllowedForHttpStatus,
   modelCandidates,
   parseArgs,
   parseCodexSorryCodeConfig,
@@ -93,11 +92,11 @@ const {
 );
 
 const routingCases = [
-  ['auto', 'gpt-image-2-all'],
-  ['1024x1024', 'gpt-image-2-all'],
-  ['1536x1024', 'gpt-image-2-all'],
-  ['1600x640', 'gpt-image-2-all'],
-  ['1920x1080', 'gpt-image-2-all'],
+  ['auto', 'gpt-image-2'],
+  ['1024x1024', 'gpt-image-2'],
+  ['1536x1024', 'gpt-image-2'],
+  ['1600x640', 'gpt-image-2'],
+  ['1920x1080', 'gpt-image-2'],
   ['2048x1152', 'gpt-image-2'],
   ['2048x2048', 'gpt-image-2'],
   ['3840x2160', 'gpt-image-2'],
@@ -107,17 +106,14 @@ for (const [size, expected] of routingCases) {
   if (selectDefaultModel(size) !== expected) fail(`Unexpected automatic model for ${size}`);
 }
 
-if (parseArgs(['--size', '2048x2048', '--model', 'gpt-image-2-all']).model !== 'gpt-image-2-all') {
+if (parseArgs(['--size', '2048x2048', '--model', 'gpt-image-2']).model !== 'gpt-image-2') {
   fail('An explicit --model must override automatic routing');
 }
-if (modelCandidates('1024x1024').join(',') !== 'gpt-image-2-all,gpt-image-2') {
-  fail('Standard-size requests must try both supported models in order');
+if (modelCandidates('1024x1024').join(',') !== 'gpt-image-2') {
+  fail('Automatic requests must use the supported model');
 }
-if (modelCandidates('1024x1024', 'gpt-image-2-all').length !== 1) {
-  fail('An explicit model must disable automatic model fallback');
-}
-if (fallbackAllowedForHttpStatus(403) || !fallbackAllowedForHttpStatus(503)) {
-  fail('Credential and group failures must stop fallback while availability failures may continue');
+if (modelCandidates('1024x1024', 'gpt-image-2').join(',') !== 'gpt-image-2') {
+  fail('An explicit supported model must remain the only candidate');
 }
 if (!apiErrorDetail('{"code":"GROUP_DELETED","message":"group was deleted"}').includes('GROUP_DELETED')) {
   fail('Top-level SorryCode API errors must remain visible in diagnostics');
